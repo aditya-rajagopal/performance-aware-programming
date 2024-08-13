@@ -24,7 +24,14 @@ pub fn build(b: *std.Build) void {
     //     .optimize = optimize,
     // });
 
-    const sim8086 = b.addModule("sim8086", .{ .root_source_file = .{ .path = "src/sim8086/sim8086.zig" } });
+    const utils = b.addModule("utils", .{ .root_source_file = .{ .path = "src/utils/utils.zig" } });
+
+    const sim8086 = b.addModule("sim8086", .{
+        .root_source_file = .{
+            .path = "src/sim8086/sim8086.zig",
+        },
+        .imports = &.{.{ .name = "utils", .module = utils }},
+    });
 
     // This declares intent for the library to be installed into the standard
     // location when the user invokes the "install" step (the default step when
@@ -39,6 +46,7 @@ pub fn build(b: *std.Build) void {
     });
 
     exe.root_module.addImport("sim8086", sim8086);
+    exe.root_module.addImport("utils", utils);
 
     // This declares intent for the executable to be installed into the
     // standard location when the user invokes the "install" step (the default
