@@ -1,4 +1,4 @@
-const std = @import("std");
+const Tables = @This();
 
 pub const instruction = enum(u8) {
     mov_reg_reg = 0b10001000,
@@ -46,3 +46,5 @@ pub const Mode = enum(u2) {
     mem_16_bit_disp = 0b10,
     mem_reg_mode = 0b11,
 };
+
+const std = @import("std");
