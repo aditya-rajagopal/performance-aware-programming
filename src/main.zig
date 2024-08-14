@@ -1,11 +1,12 @@
 const std = @import("std");
 const sim8086 = @import("sim8086");
+const parse_args = @import("parse_args.zig").parseArgs;
+const usage_str = @import("parse_args.zig").usage;
 
 pub fn main() !void {
     // var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     // defer arena.deinit();
     // const allocator = arena.allocator();
-    //
 
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     const allocator = gpa.allocator();
@@ -14,11 +15,56 @@ pub fn main() !void {
         if (deinit_code == .leak) @panic("Leaked memory");
     }
 
-    const file = try std.fs.cwd().openFile("./src/listings/listing_0038_many_register_mov", .{});
-    defer file.close();
-    var buffer: [10240]u8 = undefined;
-    const data = try file.reader().readAll(&buffer);
-    const output = try sim8086.disassemble(buffer[0..data], allocator);
+    var config = try parse_args(allocator);
+    defer config.deinit(allocator);
+
+    const outw = std.io.getStdOut().writer();
+    if (config.help) {
+        try outw.print("{s}", .{usage_str});
+        return;
+    }
+
+    if (config.is_error) {
+        return;
+    }
+
+    var output: []const u8 = undefined;
     defer allocator.free(output);
-    std.debug.print("Disassembled:\n{s}\n", .{output});
+
+    if (config.disassemble) |d_file| {
+        const file = try std.fs.cwd().openFile(d_file, .{});
+        defer file.close();
+        var buffer: [10240]u8 = undefined;
+        const data = try file.reader().readAll(&buffer);
+        output = try sim8086.disassemble(buffer[0..data], allocator);
+        try outw.print("{s}\n", .{output});
+    } else {
+        std.log.err("{s}", .{usage_str});
+        std.log.err("Invalid usage: -d, --disassembly [path] must be provided", .{});
+    }
+
+    if (config.enable_output) {
+        var out_file: []const u8 = undefined;
+        defer allocator.free(out_file);
+
+        if (config.output) |o| {
+            out_file = try allocator.dupe(u8, o);
+        } else {
+            var file_name = config.disassemble.?;
+            const seperators = [_]u8{ '\\', '/' };
+
+            inline for (seperators) |sep| {
+                const file_name_start = std.mem.lastIndexOfScalar(u8, file_name, sep);
+                if (file_name_start) |f| {
+                    file_name = file_name[f + 1 ..];
+                }
+            }
+            out_file = try std.fmt.allocPrint(allocator, "./{s}{s}", .{ "sim8086_", file_name });
+        }
+
+        const file = try std.fs.cwd().createFile(out_file, .{});
+        defer file.close();
+        try file.writer().writeAll(output);
+        try outw.print("Output written to: {s}", .{out_file});
+    }
 }

@@ -6,7 +6,7 @@ const Tables = @import("tables.zig");
 
 pub fn disassemble(bytecode: []const u8, allocator: Allocator) ![]const u8 {
     var disassembly = try std.ArrayList(u8).initCapacity(allocator, bytecode.len * 5);
-    utils.print_bytecode(bytecode);
+    // utils.print_bytecode(bytecode);
 
     try disassembly.appendSlice("bits 16\n\n");
 

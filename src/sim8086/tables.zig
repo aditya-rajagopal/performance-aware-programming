@@ -17,7 +17,7 @@ pub const inst_to_string = std.enums.directEnumArrayDefault(
 
 /// This is for when MOD = 0b11
 /// to index into this field you can do ( W << 3 ) | REG
-pub const Registers: [16][]const u8 = .{
+pub const Registers = [_][]const u8{
     "al",
     "cl",
     "dl",
