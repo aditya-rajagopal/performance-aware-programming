@@ -2,6 +2,7 @@ const std = @import("std");
 const sim8086 = @import("sim8086");
 const parse_args = @import("parse_args.zig").parseArgs;
 const usage_str = @import("parse_args.zig").usage;
+const utils = @import("utils");
 
 pub fn main() !void {
     // var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
@@ -36,6 +37,7 @@ pub fn main() !void {
         defer file.close();
         var buffer: [10240]u8 = undefined;
         const data = try file.reader().readAll(&buffer);
+        utils.print_bytecode(buffer[0..data]);
         output = try sim8086.disassemble(buffer[0..data], allocator);
         try outw.print("{s}\n", .{output});
     } else {

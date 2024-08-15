@@ -3,40 +3,69 @@ const Allocator = std.mem.Allocator;
 const testing = std.testing;
 const utils = @import("utils");
 const Tables = @import("tables.zig");
+const assert = utils.assert;
+
+pub const Disassembler = @This();
+
+bytecode: []const u8,
+disassembly: std.ArrayList(u8),
+
+inst_ptr: usize = 0,
+
+pub fn init(bytecode: []const u8, allocator: Allocator) Disassembler {
+    return .{
+        .bytecode = bytecode,
+        .disassembly = std.ArrayList(u8).init(allocator),
+    };
+}
+
+pub fn append(self: *Disassembler, slice: []const u8) !void {
+    try self.disassembly.appendSlice(slice);
+}
 
 pub fn disassemble(bytecode: []const u8, allocator: Allocator) ![]const u8 {
-    var disassembly = try std.ArrayList(u8).initCapacity(allocator, bytecode.len * 5);
+    var disassembler = Disassembler.init(bytecode, allocator);
+    // var disassembly = try std.ArrayList(u8).initCapacity(allocator, bytecode.len * 5);
     // utils.print_bytecode(bytecode);
 
-    try disassembly.appendSlice("bits 16\n\n");
+    try disassembler.disassemble_bytecode();
 
-    var inst_ptr: usize = 0;
-    while (inst_ptr < bytecode.len) : (try disassembly.appendSlice("\n")) {
-        const op = bytecode[inst_ptr];
+    return disassembler.disassembly.toOwnedSlice();
+}
+
+fn disassemble_bytecode(self: *Disassembler) !void {
+    try self.append("bits 16\n\n");
+
+    while (self.inst_ptr < self.bytecode.len) : (try self.append("\n")) {
+        const op = self.increment_ptr();
         const op_code = find_op_code(op);
-        inst_ptr += 1;
 
         const location = @as(usize, @intCast(@intFromEnum(op_code)));
 
-        try disassembly.appendSlice(Tables.inst_to_string[location]);
-        try disassembly.append(' ');
+        try self.append(Tables.inst_to_string[location]);
+        try self.append(" ");
 
-        // std.debug.print("op_code: {s}\n", .{@tagName(op_code)});
+        std.debug.print("op_code: {b} {s}\n", .{ op, @tagName(op_code) });
         switch (op_code) {
-            .mov_reg_reg => {
-                const payload = bytecode[inst_ptr];
-                try disassemble_mov_reg_reg(op, payload, &disassembly);
-
-                inst_ptr += 1;
-            },
+            .mov_rm_reg => try self.disassemble_mov_reg_rm(op),
+            .mov_im_reg => try self.disassemble_mov_im_reg(op),
             else => unreachable,
         }
     }
-    _ = disassembly.pop(); // remove the last \n
-    return disassembly.toOwnedSlice();
+    _ = self.disassembly.pop(); // remove the last \n
 }
 
-fn disassemble_mov_reg_reg(op: u8, payload: u8, disassembly: *std.ArrayList(u8)) !void {
+fn disassemble_mov_im_reg(self: *Disassembler, op: u8) !void {
+    const w = (op >> 3) & 1;
+    const offset = try self.parse_bytes_as_int(w + 1);
+    const reg_str = Tables.Registers[op & 0b1111];
+    var buffer: [1024]u8 = undefined;
+    const line = try std.fmt.bufPrint(&buffer, "{s}, {d}", .{ reg_str, offset });
+    try self.disassembly.appendSlice(line);
+}
+
+fn disassemble_mov_reg_rm(self: *Disassembler, op: u8) !void {
+    const payload = self.increment_ptr();
     const d = (op >> 1) & 1;
     const w = op & 1;
     const mod = (payload >> 6) & 0b11;
@@ -47,17 +76,51 @@ fn disassemble_mov_reg_reg(op: u8, payload: u8, disassembly: *std.ArrayList(u8))
     //     .{ d, w, mod, reg, rm },
     // );
     const mode: Tables.Mode = @enumFromInt(mod);
+    var strings: [2][]const u8 = undefined;
+
     switch (mode) {
         .mem_reg_mode => {
-            var strings: [2][]const u8 = undefined;
             const reg_indx: usize = (w << 3);
 
             strings[0] = Tables.Registers[reg_indx | reg];
             strings[1] = Tables.Registers[reg_indx | rm];
+        },
+        else => {
+            const reg_index: usize = (w << 3) | reg;
 
-            try disassembly.appendSlice(strings[d ^ 1]);
-            try disassembly.appendSlice(", ");
-            try disassembly.appendSlice(strings[d]);
+            strings[0] = Tables.Registers[reg_index];
+            const effective_addr = Tables.EffectiveAddress[rm];
+            var num_disp: usize = mod;
+            if (mod == 0 and rm == 0b110) {
+                num_disp = @as(usize, @intCast(w)) + 1;
+            }
+            var buffer: [256]u8 = undefined;
+            const offset = try self.parse_bytes_as_int(num_disp);
+            if (num_disp == 0 or offset == 0) {
+                strings[1] = try std.fmt.bufPrint(&buffer, "[{s}]", .{effective_addr});
+            } else {
+                strings[1] = try std.fmt.bufPrint(&buffer, "[{s} + {d}]", .{ effective_addr, offset });
+            }
+        },
+    }
+    try self.append(strings[d ^ 1]);
+    try self.append(", ");
+    try self.append(strings[d]);
+}
+
+fn parse_bytes_as_int(self: *Disassembler, num_bytes: usize) !i16 {
+    assert(num_bytes <= 2, "Function not designed for more than 2 bytes as of now", .{});
+    switch (num_bytes) {
+        0 => return 0,
+        1 => {
+            const data = self.increment_ptr();
+            return @bitCast(@as(u16, @intCast(data)));
+        },
+        2 => {
+            assert(self.inst_ptr < self.bytecode.len - 1, "Not enough bytes to read 16bit number", .{});
+            const data = std.mem.bytesToValue(i16, self.bytecode[self.inst_ptr .. self.inst_ptr + 2]);
+            self.inst_ptr += 2;
+            return data;
         },
         else => unreachable,
     }
@@ -65,12 +128,22 @@ fn disassemble_mov_reg_reg(op: u8, payload: u8, disassembly: *std.ArrayList(u8))
 
 fn find_op_code(op_bytecode: u8) Tables.instruction {
     inline for (std.meta.fields(Tables.instruction)) |f| {
-        // std.debug.print("Field: {b:0>8}, op_code: {b:0>8}, res: {b:0>8}\n", .{ f.value, op_bytecode, f.value & op_bytecode });
-        if (f.value & op_bytecode == f.value) {
+        const value = f.value; // 0b10100
+        const first_bit = value & -value; // 0b00100
+        const ctz = std.math.log2(first_bit); // 2
+        // std.debug.print("Field: {b:0>8}, op_code: {b:0>8}, res: {d}\n", .{ f.value, op_bytecode, ctz });
+        if (f.value >> ctz == op_bytecode >> ctz) {
             return @enumFromInt(f.value);
         }
     }
     unreachable;
+}
+
+fn increment_ptr(self: *Disassembler) u8 {
+    assert(self.inst_ptr < self.bytecode.len, "Exceeding bytecode length", .{});
+    const out = self.bytecode[self.inst_ptr];
+    self.inst_ptr += 1;
+    return out;
 }
 
 const test_struct = struct {
@@ -83,10 +156,13 @@ test "find_op_code" {
         input: u8,
         output: Tables.instruction,
     }{
-        .{ .input = 0b10001000, .output = .mov_reg_reg },
+        .{ .input = 0b10001000, .output = .mov_rm_reg },
+        .{ .input = 0b11000110, .output = .mov_im_rm },
+        .{ .input = 0b10110000, .output = .mov_im_reg },
+        .{ .input = 0b10100000, .output = .mov_mem_acc },
     };
 
-    const debug: bool = true;
+    const debug: bool = false;
 
     for (test_cases, 0..) |case, i| {
         if (debug) {
@@ -96,7 +172,7 @@ test "find_op_code" {
         const op_code = find_op_code(case.input);
         try testing.expectEqual(case.output, op_code);
         if (debug) {
-            std.debug.print("Output: {s}", .{@tagName(op_code)});
+            std.debug.print("Output: {s}\n", .{@tagName(op_code)});
         }
     }
 }
@@ -106,9 +182,19 @@ test "mov" {
         .{ .input = &[_]u8{ 137, 217 }, .output = "bits 16\n\nmov cx, bx" },
         .{ .input = &[_]u8{ 136, 229 }, .output = "bits 16\n\nmov ch, ah" },
         .{ .input = &[_]u8{ 137, 222 }, .output = "bits 16\n\nmov si, bx" },
+        .{ .input = &[_]u8{ 0b10001011, 0b01001010, 0b00000010 }, .output = "bits 16\n\nmov cx, [bp + si + 2]" },
+        .{ .input = &[_]u8{ 0b10001000, 0b01101110, 0b00000000 }, .output = "bits 16\n\nmov [bp], ch" },
+        .{ .input = &[_]u8{ 0b10001001, 0b10001110, 0b00000001, 0b00000000 }, .output = "bits 16\n\nmov [bp + 1], cx" },
+        .{ .input = &[_]u8{ 0b10001011, 0b00011011 }, .output = "bits 16\n\nmov bx, [bp + di]" },
+        .{ .input = &[_]u8{ 0b10111001, 0b00000001, 0b00000000 }, .output = "bits 16\n\nmov cx, 1" },
         .{ .input = &[_]u8{ 137, 251, 136, 200 }, .output = "bits 16\n\nmov bx, di\nmov al, cl" },
     };
     try test_inputs(&test_cases, false);
+}
+
+test "test" {
+    const a: u8 = 0b11011011;
+    std.debug.print("A: {d}, comp: {d}", .{ a, @as(i8, @bitCast(a)) });
 }
 
 fn test_inputs(test_cases: []const test_struct, debug: bool) !void {
