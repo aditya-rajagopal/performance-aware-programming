@@ -25,8 +25,6 @@ pub fn append(self: *Disassembler, slice: []const u8) !void {
 
 pub fn disassemble(bytecode: []const u8, allocator: Allocator) ![]const u8 {
     var disassembler = Disassembler.init(bytecode, allocator);
-    // var disassembly = try std.ArrayList(u8).initCapacity(allocator, bytecode.len * 5);
-    // utils.print_bytecode(bytecode);
 
     try disassembler.disassemble_bytecode();
 
@@ -49,10 +47,48 @@ fn disassemble_bytecode(self: *Disassembler) !void {
         switch (op_code) {
             .mov_rm_reg => try self.disassemble_mov_reg_rm(op),
             .mov_im_reg => try self.disassemble_mov_im_reg(op),
+            .mov_im_rm => try self.disassemble_mov_im_rm(op),
+            .mov_mem_acc => try self.disassemble_mov_mem_acc(op),
             else => unreachable,
         }
     }
     _ = self.disassembly.pop(); // remove the last \n
+}
+
+fn disassemble_mov_mem_acc(self: *Disassembler, op: u8) !void {
+    const w = op & 1;
+    const dir = (op >> 1) & 1;
+
+    const addr = try self.parse_bytes_as_int(2);
+
+    var strings: [2][]const u8 = undefined;
+    var buffer: [32]u8 = undefined;
+    const reg = [_][]const u8{ "al", "ax" };
+    strings[0] = reg[w];
+    strings[1] = try std.fmt.bufPrint(&buffer, "[{d}]", .{addr});
+
+    try self.disassembly.appendSlice(strings[dir]);
+    try self.disassembly.appendSlice(", ");
+    try self.disassembly.appendSlice(strings[dir ^ 1]);
+}
+
+fn disassemble_mov_im_rm(self: *Disassembler, op: u8) !void {
+    const w = op & 1;
+    const payload = self.increment_ptr();
+    const rm = payload & 0b111;
+    const mod = payload >> 6;
+    const qualifier = [_][]const u8{ "byte", "word" };
+    // std.debug.print(
+    //     "mov: w:{b}, mod:{b:0>2}, rm:{b:0>3} \n",
+    //     .{ w, mod, rm },
+    // );
+
+    var buffer: [256]u8 = undefined;
+    var buffer2: [256]u8 = undefined;
+    var addr = try self.get_effective_addr(rm, mod, w, &buffer);
+    const im_val = try self.parse_bytes_as_int(w + 1);
+    addr = try std.fmt.bufPrint(&buffer2, "{s}, {s} {d}", .{ addr, qualifier[w], im_val });
+    try self.disassembly.appendSlice(addr);
 }
 
 fn disassemble_mov_im_reg(self: *Disassembler, op: u8) !void {
@@ -89,18 +125,8 @@ fn disassemble_mov_reg_rm(self: *Disassembler, op: u8) !void {
             const reg_index: usize = (w << 3) | reg;
 
             strings[0] = Tables.Registers[reg_index];
-            const effective_addr = Tables.EffectiveAddress[rm];
-            var num_disp: usize = mod;
-            if (mod == 0 and rm == 0b110) {
-                num_disp = @as(usize, @intCast(w)) + 1;
-            }
             var buffer: [256]u8 = undefined;
-            const offset = try self.parse_bytes_as_int(num_disp);
-            if (num_disp == 0 or offset == 0) {
-                strings[1] = try std.fmt.bufPrint(&buffer, "[{s}]", .{effective_addr});
-            } else {
-                strings[1] = try std.fmt.bufPrint(&buffer, "[{s} + {d}]", .{ effective_addr, offset });
-            }
+            strings[1] = try self.get_effective_addr(rm, mod, w, &buffer);
         },
     }
     try self.append(strings[d ^ 1]);
@@ -108,13 +134,41 @@ fn disassemble_mov_reg_rm(self: *Disassembler, op: u8) !void {
     try self.append(strings[d]);
 }
 
+fn get_effective_addr(self: *Disassembler, rm: usize, mod: usize, w: usize, buffer: []u8) ![]u8 {
+    const effective_addr = Tables.EffectiveAddress[rm];
+    var num_disp: usize = mod;
+    var is_direct: bool = false;
+    if (mod == 0 and rm == 0b110) {
+        num_disp = @as(usize, @intCast(w)) + 1;
+        is_direct = true;
+    }
+
+    const displacement = try self.parse_bytes_as_int(num_disp);
+    var sign: []const u8 = undefined;
+    if (displacement < 0) {
+        sign = "-";
+    } else {
+        sign = "+";
+    }
+    if (is_direct) {
+        return try std.fmt.bufPrint(buffer, "[{d}]", .{displacement});
+    } else if (num_disp == 0 or displacement == 0) {
+        return try std.fmt.bufPrint(buffer, "[{s}]", .{effective_addr});
+    } else {
+        return try std.fmt.bufPrint(buffer, "[{s} {s} {d}]", .{ effective_addr, sign, @abs(displacement) });
+    }
+}
+
 fn parse_bytes_as_int(self: *Disassembler, num_bytes: usize) !i16 {
     assert(num_bytes <= 2, "Function not designed for more than 2 bytes as of now", .{});
     switch (num_bytes) {
         0 => return 0,
         1 => {
-            const data = self.increment_ptr();
-            return @bitCast(@as(u16, @intCast(data)));
+            assert(self.inst_ptr < self.bytecode.len, "Not enough bytes to read 8bit number", .{});
+            const data = std.mem.bytesToValue(i8, self.bytecode[self.inst_ptr .. self.inst_ptr + 1]);
+            // const data = self.increment_ptr();
+            self.inst_ptr += 1;
+            return @intCast(data);
         },
         2 => {
             assert(self.inst_ptr < self.bytecode.len - 1, "Not enough bytes to read 16bit number", .{});
@@ -187,6 +241,10 @@ test "mov" {
         .{ .input = &[_]u8{ 0b10001001, 0b10001110, 0b00000001, 0b00000000 }, .output = "bits 16\n\nmov [bp + 1], cx" },
         .{ .input = &[_]u8{ 0b10001011, 0b00011011 }, .output = "bits 16\n\nmov bx, [bp + di]" },
         .{ .input = &[_]u8{ 0b10111001, 0b00000001, 0b00000000 }, .output = "bits 16\n\nmov cx, 1" },
+        .{ .input = &[_]u8{ 0b10001011, 0b01000001, 0b11011011 }, .output = "bits 16\n\nmov ax, [bx + di - 37]" },
+        .{ .input = &[_]u8{ 0b10001001, 0b10001100, 0b11010100, 0b11111110 }, .output = "bits 16\n\nmov [si - 300], cx" },
+        .{ .input = &[_]u8{ 0b10100011, 0b00001111, 0b00000000 }, .output = "bits 16\n\nmov [15], ax" },
+        .{ .input = &[_]u8{ 0b10001011, 0b00101110, 0b00000101, 0b00000000 }, .output = "bits 16\n\nmov bp, [5]" },
         .{ .input = &[_]u8{ 137, 251, 136, 200 }, .output = "bits 16\n\nmov bx, di\nmov al, cl" },
     };
     try test_inputs(&test_cases, false);
