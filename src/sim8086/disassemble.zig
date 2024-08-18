@@ -43,7 +43,7 @@ fn disassemble_bytecode(self: *Disassembler) !void {
         try self.append(Tables.inst_to_string[location]);
         try self.append(" ");
 
-        std.debug.print("op_code: {b} {s}\n", .{ op, @tagName(op_code) });
+        // std.debug.print("op_code: {b} {s}\n", .{ op, @tagName(op_code) });
         switch (op_code) {
             .mov_rm_reg => try self.disassemble_mov_reg_rm(op),
             .mov_im_reg => try self.disassemble_mov_im_reg(op),
@@ -94,7 +94,7 @@ fn disassemble_mov_im_rm(self: *Disassembler, op: u8) !void {
 fn disassemble_mov_im_reg(self: *Disassembler, op: u8) !void {
     const w = (op >> 3) & 1;
     const offset = try self.parse_bytes_as_int(w + 1);
-    const reg_str = Tables.Registers[op & 0b1111];
+    const reg_str = Tables.RegistersStrings[op & 0b1111];
     var buffer: [1024]u8 = undefined;
     const line = try std.fmt.bufPrint(&buffer, "{s}, {d}", .{ reg_str, offset });
     try self.disassembly.appendSlice(line);
@@ -118,13 +118,13 @@ fn disassemble_mov_reg_rm(self: *Disassembler, op: u8) !void {
         .mem_reg_mode => {
             const reg_indx: usize = (w << 3);
 
-            strings[0] = Tables.Registers[reg_indx | reg];
-            strings[1] = Tables.Registers[reg_indx | rm];
+            strings[0] = Tables.RegistersStrings[reg_indx | reg];
+            strings[1] = Tables.RegistersStrings[reg_indx | rm];
         },
         else => {
             const reg_index: usize = (w << 3) | reg;
 
-            strings[0] = Tables.Registers[reg_index];
+            strings[0] = Tables.RegistersStrings[reg_index];
             var buffer: [256]u8 = undefined;
             strings[1] = try self.get_effective_addr(rm, mod, w, &buffer);
         },
@@ -180,8 +180,8 @@ fn parse_bytes_as_int(self: *Disassembler, num_bytes: usize) !i16 {
     }
 }
 
-fn find_op_code(op_bytecode: u8) Tables.instruction {
-    inline for (std.meta.fields(Tables.instruction)) |f| {
+fn find_op_code(op_bytecode: u8) Tables.instruction_code {
+    inline for (std.meta.fields(Tables.instruction_code)) |f| {
         const value = f.value; // 0b10100
         const first_bit = value & -value; // 0b00100
         const ctz = std.math.log2(first_bit); // 2
@@ -208,7 +208,7 @@ const test_struct = struct {
 test "find_op_code" {
     const test_cases = [_]struct {
         input: u8,
-        output: Tables.instruction,
+        output: Tables.instruction_code,
     }{
         .{ .input = 0b10001000, .output = .mov_rm_reg },
         .{ .input = 0b11000110, .output = .mov_im_rm },
@@ -248,11 +248,6 @@ test "mov" {
         .{ .input = &[_]u8{ 137, 251, 136, 200 }, .output = "bits 16\n\nmov bx, di\nmov al, cl" },
     };
     try test_inputs(&test_cases, false);
-}
-
-test "test" {
-    const a: u8 = 0b11011011;
-    std.debug.print("A: {d}, comp: {d}", .{ a, @as(i8, @bitCast(a)) });
 }
 
 fn test_inputs(test_cases: []const test_struct, debug: bool) !void {
