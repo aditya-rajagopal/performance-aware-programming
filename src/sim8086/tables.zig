@@ -20,19 +20,27 @@ pub const InstFieldType = enum(u8) {
 };
 
 pub const Registers = enum(u8) {
-    A,
-    C,
-    D,
-    B,
-    SP,
-    BP,
-    SI,
-    DI,
+    al,
+    cl,
+    dl,
+    bl,
+    ah,
+    ch,
+    dh,
+    bh,
+    ax,
+    cx,
+    dx,
+    bx,
+    sp,
+    bp,
+    si,
+    di,
     // Segment registers
-    ES,
-    CS,
-    SS,
-    DS,
+    es,
+    cs,
+    ss,
+    ds,
 };
 
 pub const InstFieldInfo = struct { // 4bytes
@@ -44,23 +52,7 @@ pub const InstFieldInfo = struct { // 4bytes
     payload: u8 = 0,
 };
 
-pub const Operation = enum(u8) {
-    mov_rm_reg,
-    mov_im_rm,
-    mov_im_reg,
-    mov_mem_acc,
-    mov_acc_mem,
-    mov_rm_sr,
-    add,
-};
-
-pub const Code = enum(u8) {
-    mov,
-    add,
-    unknown,
-};
-
-fn comptime_literal(comptime op_literal: []const u8) InstFieldInfo {
+fn literal(comptime op_literal: []const u8) InstFieldInfo {
     const value = std.fmt.parseInt(u8, op_literal, 2) catch unreachable;
     return .{
         .inst_type = .LITERAL,
@@ -90,6 +82,33 @@ fn Set(comptime field_type: InstFieldType, comptime payload: u8) InstFieldInfo {
     };
 }
 
+pub const Operation = enum(u8) {
+    mov_rm_reg,
+    mov_im_rm,
+    mov_im_reg,
+    mov_mem_acc,
+    mov_acc_mem,
+    mov_rm_sr,
+    push_rm,
+    push_reg,
+    push_seg,
+    pop_rm,
+    pop_reg,
+    pop_seg,
+    xchg_reg_rm,
+    xch_reg_acc,
+    add,
+};
+
+pub const Code = enum(u8) {
+    mov,
+    push,
+    pop,
+    add,
+    xchg,
+    unknown,
+};
+
 pub const op_to_code_map = std.enums.directEnumArrayDefault(
     Operation,
     Code,
@@ -102,6 +121,14 @@ pub const op_to_code_map = std.enums.directEnumArrayDefault(
         .mov_mem_acc = .mov,
         .mov_acc_mem = .mov,
         .mov_rm_sr = .mov,
+        .push_rm = .push,
+        .push_reg = .push,
+        .push_seg = .push,
+        .pop_rm = .pop,
+        .pop_reg = .pop,
+        .pop_seg = .pop,
+        .xchg_reg_rm = .xchg,
+        .xch_reg_acc = .xchg,
         .add = .add,
     },
 );
@@ -112,11 +139,11 @@ pub const instruction_map = std.enums.directEnumArrayDefault(
     null,
     0,
     .{
-        .mov_rm_reg = &[_]InstFieldInfo{ comptime_literal("100010"), D, W, MOD, REG, RM },
-        .mov_im_reg = &[_]InstFieldInfo{ comptime_literal("1011"), W, REG, DATA_LO, DATA_HI_OPT, Set(.D, 1) },
-        .mov_im_rm = &[_]InstFieldInfo{ comptime_literal("1100011"), W, MOD, comptime_literal("000"), RM, DATA_LO, DATA_HI_OPT, Set(.D, 0) },
+        .mov_rm_reg = &[_]InstFieldInfo{ literal("100010"), D, W, MOD, REG, RM },
+        .mov_im_reg = &[_]InstFieldInfo{ literal("1011"), W, REG, DATA_LO, DATA_HI_OPT, Set(.D, 1) },
+        .mov_im_rm = &[_]InstFieldInfo{ literal("1100011"), W, MOD, literal("000"), RM, DATA_LO, DATA_HI_OPT, Set(.D, 0) },
         .mov_mem_acc = &[_]InstFieldInfo{
-            comptime_literal("1010000"),
+            literal("1010000"),
             W,
             DISP_LO,
             DISP_HI,
@@ -126,7 +153,7 @@ pub const instruction_map = std.enums.directEnumArrayDefault(
             Set(.RM, 0b110),
         },
         .mov_acc_mem = &[_]InstFieldInfo{
-            comptime_literal("1010001"),
+            literal("1010001"),
             W,
             DISP_LO,
             DISP_HI,
@@ -136,17 +163,29 @@ pub const instruction_map = std.enums.directEnumArrayDefault(
             Set(.RM, 0b110),
         },
         .mov_rm_sr = &[_]InstFieldInfo{
-            comptime_literal("100011"),
+            literal("100011"),
             D,
-            comptime_literal("0"),
+            literal("0"),
             MOD,
-            comptime_literal("0"),
+            literal("0"),
             SR,
             RM,
             Set(.W, 1),
         },
+
+        .push_rm = &[_]InstFieldInfo{ literal("11111111"), MOD, literal("110"), RM, Set(.D, 1), Set(.W, 1) },
+        .push_reg = &[_]InstFieldInfo{ literal("01010"), REG, Set(.D, 1), Set(.W, 1) },
+        .push_seg = &[_]InstFieldInfo{ literal("000"), SR, literal("110"), Set(.D, 1), Set(.W, 1) },
+
+        .pop_rm = &[_]InstFieldInfo{ literal("10001111"), MOD, literal("000"), RM, Set(.D, 1), Set(.W, 1) },
+        .pop_reg = &[_]InstFieldInfo{ literal("01011"), REG, Set(.D, 1), Set(.W, 1) },
+        .pop_seg = &[_]InstFieldInfo{ literal("000"), SR, literal("111"), Set(.D, 1), Set(.W, 1) },
+
+        .xchg_reg_rm = &[_]InstFieldInfo{ literal("1000011"), W, MOD, REG, RM, Set(.D, 1) },
+        .xch_reg_acc = &[_]InstFieldInfo{ literal("10010"), REG, Set(.MOD, 0b11), Set(.RM, 0b00), Set(.W, 1), Set(.D, 0) },
+
         .add = &[_]InstFieldInfo{
-            comptime_literal("000000"),
+            literal("000000"),
             D,
             W,
             MOD,
@@ -175,11 +214,6 @@ pub const Instruction = struct {
     bytes: u8 = 0, // number of bytes to read for this op
     operands: [2]Operand = [_]Operand{ .none, .none }, // the first and second operand that this op works on.
 };
-
-test "operation_pattern_get" {
-    const data = [_]u8{ 0b10001011, 0b01001010, 0b00000001, 0b111111 };
-    _ = data;
-}
 
 pub const instruction_code = enum(u8) {
     mov_rm_reg = 0b10001000,
