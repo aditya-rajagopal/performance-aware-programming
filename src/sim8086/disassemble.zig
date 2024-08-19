@@ -42,7 +42,10 @@ fn disassemble_bytecode(self: *Disassembler) !void {
         self.inst_ptr += instruction.bytes;
 
         try self.append(@tagName(instruction.op_code));
-        try self.append(" ");
+
+        if (instruction.operands[0] != .none or instruction.operands[1] != .none) {
+            try self.append(" ");
+        }
 
         try self.appendOperand(instruction.operands[0], instruction.flags, false);
 
@@ -168,6 +171,158 @@ test "xchg" {
         .{ .input = &[_]u8{ 0b10000111, 0b10001001, 0b00000001, 0b00000001 }, .output = "bits 16\n\nxchg cx, [bx + di + 257]" },
         // acc
         .{ .input = &[_]u8{0b10010111}, .output = "bits 16\n\nxchg ax, di" },
+    };
+    try test_inputs(&test_cases, false);
+}
+
+test "in" {
+    const test_cases = [_]test_struct{
+        .{
+            .input = &[_]u8{ 0b11100100, 0b11001000 },
+            .output = "bits 16\n\nin al, 200",
+        },
+        .{
+            .input = &[_]u8{0b11101100},
+            .output = "bits 16\n\nin al, dx",
+        },
+        .{
+            .input = &[_]u8{0b11101101},
+            .output = "bits 16\n\nin ax, dx",
+        },
+    };
+    try test_inputs(&test_cases, false);
+}
+
+test "out" {
+    const test_cases = [_]test_struct{
+        .{
+            .input = &[_]u8{ 0b11100111, 0b00101100 },
+            .output = "bits 16\n\nout 44, ax",
+        },
+        .{
+            .input = &[_]u8{0b11101110},
+            .output = "bits 16\n\nout dx, al",
+        },
+    };
+    try test_inputs(&test_cases, false);
+}
+
+test "xlat" {
+    const test_cases = [_]test_struct{
+        .{
+            .input = &[_]u8{0b11010111},
+            .output = "bits 16\n\nxlat",
+        },
+    };
+    try test_inputs(&test_cases, false);
+}
+
+test "lea" {
+    const test_cases = [_]test_struct{
+        .{
+            .input = &[_]u8{ 0b10001101, 0b10000001, 0b10001100, 0b00000101 },
+            .output = "bits 16\n\nlea ax, [bx + di + 1420]",
+        },
+        .{
+            .input = &[_]u8{ 0b10001101, 0b01011110, 0b11001110 },
+            .output = "bits 16\n\nlea bx, [bp - 50]",
+        },
+        .{
+            .input = &[_]u8{ 0b10001101, 0b10100110, 0b00010101, 0b11111100 },
+            .output = "bits 16\n\nlea sp, [bp - 1003]",
+        },
+        .{
+            .input = &[_]u8{ 0b10001101, 0b01111000, 0b11111001 },
+            .output = "bits 16\n\nlea di, [bx + si - 7]",
+        },
+    };
+    try test_inputs(&test_cases, false);
+}
+
+test "lds" {
+    const test_cases = [_]test_struct{
+        .{
+            .input = &[_]u8{ 0b11000101, 0b10000001, 0b10001100, 0b00000101 },
+            .output = "bits 16\n\nlds ax, [bx + di + 1420]",
+        },
+        .{
+            .input = &[_]u8{ 0b11000101, 0b01011110, 0b11001110 },
+            .output = "bits 16\n\nlds bx, [bp - 50]",
+        },
+        .{
+            .input = &[_]u8{ 0b11000101, 0b10100110, 0b00010101, 0b11111100 },
+            .output = "bits 16\n\nlds sp, [bp - 1003]",
+        },
+        .{
+            .input = &[_]u8{ 0b11000101, 0b01111000, 0b11111001 },
+            .output = "bits 16\n\nlds di, [bx + si - 7]",
+        },
+    };
+    try test_inputs(&test_cases, false);
+}
+
+test "les" {
+    const test_cases = [_]test_struct{
+        .{
+            .input = &[_]u8{ 0b11000100, 0b10000001, 0b10001100, 0b00000101 },
+            .output = "bits 16\n\nles ax, [bx + di + 1420]",
+        },
+        .{
+            .input = &[_]u8{ 0b11000100, 0b01011110, 0b11001110 },
+            .output = "bits 16\n\nles bx, [bp - 50]",
+        },
+        .{
+            .input = &[_]u8{ 0b11000100, 0b10100110, 0b00010101, 0b11111100 },
+            .output = "bits 16\n\nles sp, [bp - 1003]",
+        },
+        .{
+            .input = &[_]u8{ 0b11000100, 0b01111000, 0b11111001 },
+            .output = "bits 16\n\nles di, [bx + si - 7]",
+        },
+    };
+    try test_inputs(&test_cases, false);
+}
+
+test "misc out instructions" {
+    const test_cases = [_]test_struct{
+        .{
+            .input = &[_]u8{0b10011111},
+            .output = "bits 16\n\nlahf",
+        },
+        .{
+            .input = &[_]u8{0b10011110},
+            .output = "bits 16\n\nsahf",
+        },
+        .{
+            .input = &[_]u8{0b10011100},
+            .output = "bits 16\n\npushf",
+        },
+        .{
+            .input = &[_]u8{0b10011101},
+            .output = "bits 16\n\npopf",
+        },
+    };
+    try test_inputs(&test_cases, false);
+}
+
+test "add" {
+    const test_cases = [_]test_struct{
+        .{
+            .input = &[_]u8{ 0b00000011, 0b01001110, 0b00000000 },
+            .output = "bits 16\n\nadd cx, [bp]",
+        },
+        .{
+            .input = &[_]u8{ 0b10000001, 0b011000100, 0b10001000, 0b00000001 },
+            .output = "bits 16\n\nadd sp, 392",
+        },
+        .{
+            .input = &[_]u8{ 0b00000100, 0b00001001 },
+            .output = "bits 16\n\nadd al, 9",
+        },
+        .{
+            .input = &[_]u8{ 0b00000000, 0b11000101 },
+            .output = "bits 16\n\nadd ch, al",
+        },
     };
     try test_inputs(&test_cases, false);
 }

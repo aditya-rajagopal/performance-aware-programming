@@ -62,6 +62,7 @@ pub const InstFieldInfo = struct { // 4bytes
 };
 
 fn literal(comptime op_literal: []const u8) InstFieldInfo {
+    @setEvalBranchQuota(200000);
     const value = std.fmt.parseInt(u8, op_literal, 2) catch unreachable;
     return .{
         .inst_type = .LITERAL,
@@ -74,6 +75,7 @@ fn literal(comptime op_literal: []const u8) InstFieldInfo {
 pub const RM_FORCED_W_REG = 0b1;
 
 const D = InstFieldInfo{ .inst_type = .D, .num_bits = 1 };
+const S = InstFieldInfo{ .inst_type = .S, .num_bits = 1 };
 const W = InstFieldInfo{ .inst_type = .W, .num_bits = 1 };
 const MOD = InstFieldInfo{ .inst_type = .MOD, .num_bits = 2 };
 const REG = InstFieldInfo{ .inst_type = .REG, .num_bits = 3 };
@@ -121,17 +123,35 @@ pub const Operation = enum(u8) {
     in_var, // the variable port will be in dx even if W is 0
     out_fixed,
     out_var, // the variable port will be in dx even if W is 0
-    add,
+    xlat,
+    lea,
+    lds,
+    les,
+    lahf,
+    sahf,
+    pushf,
+    popf,
+    add_reg_rm,
+    add_im_rm,
+    add_im_acc,
 };
 
 pub const Code = enum(u8) {
     mov,
     push,
     pop,
-    add,
     xchg,
     in,
     out,
+    xlat,
+    lea,
+    lds,
+    les,
+    lahf,
+    sahf,
+    pushf,
+    popf,
+    add,
     unknown,
 };
 
@@ -159,11 +179,38 @@ pub const op_to_code_map = std.enums.directEnumArrayDefault(
         .in_var = .in,
         .out_fixed = .out,
         .out_var = .out,
-        .add = .add,
+        .xlat = .xlat,
+        .lea = .lea,
+        .lds = .lds,
+        .les = .les,
+        .lahf = .lahf,
+        .sahf = .sahf,
+        .pushf = .pushf,
+        .popf = .popf,
+        .add_reg_rm = .add,
+        .add_im_rm = .add,
+        .add_im_acc = .add,
     },
 );
 
-pub const instruction_map = std.enums.directEnumArrayDefault(
+fn GetInstructionMap(
+    comptime E: type,
+    comptime Data: type,
+    comptime default: ?Data,
+    comptime max_unused_slots: comptime_int,
+    init_values: std.enums.EnumFieldStruct(E, Data, default),
+) [std.enums.directEnumArrayLen(E, max_unused_slots)]Data {
+    @setEvalBranchQuota(200000);
+    return std.enums.directEnumArrayDefault(
+        E,
+        Data,
+        default,
+        max_unused_slots,
+        init_values,
+    );
+}
+
+pub const instruction_map = GetInstructionMap(
     Operation,
     []const InstFieldInfo,
     null,
@@ -182,26 +229,8 @@ pub const instruction_map = std.enums.directEnumArrayDefault(
             Set(.MOD, 0b00), // Make this instruction behave like a direct address
             Set(.RM, 0b110),
         },
-        .mov_acc_mem = &[_]InstFieldInfo{
-            literal("1010001"),
-            W,
-            DISP_LO,
-            DISP_HI,
-            Set(.D, 0),
-            Set(.REG, 0b000),
-            Set(.MOD, 0b00),
-            Set(.RM, 0b110),
-        },
-        .mov_rm_sr = &[_]InstFieldInfo{
-            literal("100011"),
-            D,
-            literal("0"),
-            MOD,
-            literal("0"),
-            SR,
-            RM,
-            Set(.W, 1),
-        },
+        .mov_acc_mem = &[_]InstFieldInfo{ literal("1010001"), W, DISP_LO, DISP_HI, Set(.D, 0), Set(.REG, 0b000), Set(.MOD, 0b00), Set(.RM, 0b110) },
+        .mov_rm_sr = &[_]InstFieldInfo{ literal("100011"), D, literal("0"), MOD, literal("0"), SR, RM, Set(.W, 1) },
 
         .push_rm = &[_]InstFieldInfo{ literal("11111111"), MOD, literal("110"), RM, Set(.D, 1), Set(.W, 1) },
         .push_reg = &[_]InstFieldInfo{ literal("01010"), REG, Set(.D, 1), Set(.W, 1) },
@@ -220,14 +249,18 @@ pub const instruction_map = std.enums.directEnumArrayDefault(
         .out_fixed = &[_]InstFieldInfo{ literal("1110011"), W, DATA_LO, Set(.REG, 0b000), Set(.D, 0) },
         .out_var = &[_]InstFieldInfo{ literal("1110111"), W, Set(.REG, 0b000), Set(.MOD, 0b11), Set(.RM, 0b010), Set(.D, 0), Flag(RM_FORCED_W_REG) },
 
-        .add = &[_]InstFieldInfo{
-            literal("000000"),
-            D,
-            W,
-            MOD,
-            REG,
-            RM,
-        },
+        .xlat = &[_]InstFieldInfo{literal("11010111")},
+        .lea = &[_]InstFieldInfo{ literal("10001101"), MOD, REG, RM, Set(.D, 1), Set(.W, 1) },
+        .lds = &[_]InstFieldInfo{ literal("11000101"), MOD, REG, RM, Set(.D, 1), Set(.W, 1) },
+        .les = &[_]InstFieldInfo{ literal("11000100"), MOD, REG, RM, Set(.D, 1), Set(.W, 1) },
+        .lahf = &[_]InstFieldInfo{literal("10011111")},
+        .sahf = &[_]InstFieldInfo{literal("10011110")},
+        .pushf = &[_]InstFieldInfo{literal("10011100")},
+        .popf = &[_]InstFieldInfo{literal("10011101")},
+
+        .add_reg_rm = &[_]InstFieldInfo{ literal("000000"), D, W, MOD, REG, RM },
+        .add_im_rm = &[_]InstFieldInfo{ literal("100000"), S, W, MOD, literal("000"), RM, DATA_LO, DATA_HI_OPT, Set(.D, 0) },
+        .add_im_acc = &[_]InstFieldInfo{ literal("0000010"), W, DATA_LO, DATA_HI_OPT, Set(.D, 1), Set(.REG, 0b000) },
     },
 );
 

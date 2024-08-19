@@ -80,12 +80,14 @@ pub fn decode_next_instruction(bytecode: []const u8) !Instruction {
     const reg_as_int: usize = @intFromEnum(InstFieldType.REG);
     const sr_as_int: usize = @intFromEnum(InstFieldType.SR);
     const flag_as_int: usize = @intFromEnum(InstFieldType.FLAGS);
+    const s_as_int: usize = @intFromEnum(InstFieldType.S);
 
     const d = info[d_as_int];
     const w = info[w_as_int];
     const mod = info[mod_as_int];
     const reg = info[reg_as_int];
     const rm = info[rm_as_int];
+    const s = info[s_as_int];
 
     instruction.flags |= @truncate(w);
 
@@ -113,7 +115,7 @@ pub fn decode_next_instruction(bytecode: []const u8) !Instruction {
             disp_bytes_to_read += @intCast(@intFromBool(read_disp_lo));
             disp_bytes_to_read += @intCast(@intFromBool(read_disp_hi));
 
-            const disp: i16 = try parse_bytes_as_int(bytecode[read_pos..], disp_bytes_to_read);
+            const disp: i16 = @bitCast(try parse_bytes_as_int(bytecode[read_pos..], disp_bytes_to_read, !read_disp_hi));
 
             read_pos += disp_bytes_to_read;
             instruction.operands[d] = Operand{
@@ -128,14 +130,21 @@ pub fn decode_next_instruction(bytecode: []const u8) !Instruction {
     if (set[@as(usize, @intFromEnum(InstFieldType.DATA_LO))]) {
         var data_bytes_to_read: usize = 1;
         const data_hi_loc = @as(usize, @intFromEnum(InstFieldType.DATA_HI));
-        const read_hi = set[data_hi_loc] and ((info[data_hi_loc] == 0 and w == 1) or (info[data_hi_loc] == 1));
+        const read_hi = set[data_hi_loc] and ((info[data_hi_loc] == 0 and w == 1 and s != 1) or (info[data_hi_loc] == 1));
 
         data_bytes_to_read += @intCast(@intFromBool(read_hi));
 
-        const data: u16 = @bitCast(try parse_bytes_as_int(bytecode[read_pos..], data_bytes_to_read));
+        const data: u16 = @bitCast(try parse_bytes_as_int(bytecode[read_pos..], data_bytes_to_read, s == 1));
         read_pos += data_bytes_to_read;
 
-        instruction.operands[1] = .{ .immediate = data };
+        // normally put the immediate value in position 1. But sometimes pos 0 might be empty. If that is
+        // the case then put it in position 0.
+        var position: usize = 1;
+        if (instruction.operands[0] == .none) {
+            position = 0;
+        }
+
+        instruction.operands[position] = .{ .immediate = data };
     }
 
     instruction.bytes = @truncate(read_pos);
@@ -143,17 +152,22 @@ pub fn decode_next_instruction(bytecode: []const u8) !Instruction {
     return instruction;
 }
 
-fn parse_bytes_as_int(bytes: []const u8, num_bytes: usize) !i16 {
+fn parse_bytes_as_int(bytes: []const u8, num_bytes: usize, sign_extend: bool) !u16 {
     assert(num_bytes <= 2, "Function not designed for more than 2 bytes as of now", .{});
     assert(num_bytes <= bytes.len, "Not enough bytes to read 16bit number: pos {d} remainin {d}", .{ num_bytes, bytes.len });
     switch (num_bytes) {
         0 => return 0,
         1 => {
-            const data = std.mem.bytesToValue(i8, bytes[0..num_bytes]);
-            return @intCast(data);
+            if (sign_extend) {
+                const data = @as(i16, @intCast(std.mem.bytesToValue(i8, bytes[0..num_bytes])));
+                return @bitCast(data);
+            } else {
+                const data = @as(u16, @intCast(std.mem.bytesToValue(u8, bytes[0..num_bytes])));
+                return @intCast(data);
+            }
         },
         2 => {
-            const data = std.mem.bytesToValue(i16, bytes[0..num_bytes]);
+            const data = std.mem.bytesToValue(u16, bytes[0..num_bytes]);
             return data;
         },
         else => unreachable,
@@ -411,73 +425,6 @@ test "decode_next_instruction with mov_rm_sr" {
     try run_decode_tests(&tests);
 }
 
-test "decode_next_instruction with add" {
-    const tests = [_]TestCase{
-        .{
-            .input = &[_]u8{ 0b00000001, 0b11011001 },
-            .output = Instruction{
-                .op_code = .add,
-                .flags = 1,
-                .bytes = 2,
-                .operands = [_]Operand{
-                    .{ .register = 0b1001 },
-                    .{ .register = 0b1011 },
-                },
-            },
-        },
-        .{
-            .input = &[_]u8{ 0b00000010, 0b00000000 },
-            .output = Instruction{
-                .op_code = .add,
-                .flags = 0,
-                .bytes = 2,
-                .operands = [_]Operand{
-                    .{ .register = 0b0000 },
-                    .{ .memory = .{ .ptr = 0b00, .displacement = 0, .is_direct = false } },
-                },
-            },
-        },
-        .{
-            .input = &[_]u8{ 0b00000011, 0b01010110, 0b00000000 },
-            .output = Instruction{
-                .op_code = .add,
-                .flags = 1,
-                .bytes = 3,
-                .operands = [_]Operand{
-                    .{ .register = 0b1010 },
-                    .{ .memory = .{ .ptr = 0b110, .displacement = 0, .is_direct = false } },
-                },
-            },
-        },
-        .{
-            .input = &[_]u8{ 0b00000011, 0b00010110, 0b00000001, 0b00000001 },
-            .output = Instruction{
-                .op_code = .add,
-                .flags = 1,
-                .bytes = 4,
-                .operands = [_]Operand{
-                    .{ .register = 0b1010 },
-                    .{ .memory = .{ .ptr = 0b110, .displacement = 257, .is_direct = true } },
-                },
-            },
-        },
-        .{
-            .input = &[_]u8{ 0b00000000, 0b10000000, 0b10000111, 0b00010011 },
-            .output = Instruction{
-                .op_code = .add,
-                .flags = 2,
-                .bytes = 4,
-                .operands = [_]Operand{
-                    .{ .memory = .{ .ptr = 0b000, .displacement = 4999, .is_direct = false } },
-                    .{ .register = 0b0000 },
-                },
-            },
-        },
-    };
-
-    try run_decode_tests(&tests);
-}
-
 test "decode_next_instruction with push" {
     const tests = [_]TestCase{
         .{
@@ -551,6 +498,374 @@ test "decode_next_instruction with xchg" {
                 .operands = [_]Operand{
                     .{ .register = 0b1000 },
                     .{ .register = 0b1111 },
+                },
+            },
+        },
+    };
+
+    try run_decode_tests(&tests);
+}
+
+test "decode_next_instruction with in" {
+    const tests = [_]TestCase{
+        .{
+            .input = &[_]u8{ 0b11100100, 0b11001000 },
+            .output = Instruction{
+                .op_code = .in,
+                .flags = 0,
+                .bytes = 2,
+                .operands = [_]Operand{
+                    .{ .register = 0b0000 },
+                    .{ .immediate = 0b11001000 },
+                },
+            },
+        },
+        .{
+            .input = &[_]u8{0b11101100},
+            .output = Instruction{
+                .op_code = .in,
+                .flags = 0,
+                .bytes = 1,
+                .operands = [_]Operand{
+                    .{ .register = 0b0000 },
+                    .{ .register = 0b1010 },
+                },
+            },
+        },
+        .{
+            .input = &[_]u8{0b11101101},
+            .output = Instruction{
+                .op_code = .in,
+                .flags = 1,
+                .bytes = 1,
+                .operands = [_]Operand{
+                    .{ .register = 0b1000 },
+                    .{ .register = 0b1010 },
+                },
+            },
+        },
+    };
+
+    try run_decode_tests(&tests);
+}
+
+test "decode_next_instruction with out" {
+    const tests = [_]TestCase{
+        .{
+            .input = &[_]u8{ 0b11100111, 0b00101100 },
+            .output = Instruction{
+                .op_code = .out,
+                .flags = 1,
+                .bytes = 2,
+                .operands = [_]Operand{
+                    .{ .immediate = 0b00101100 },
+                    .{ .register = 0b1000 },
+                },
+            },
+        },
+        .{
+            .input = &[_]u8{0b11101110},
+            .output = Instruction{
+                .op_code = .out,
+                .flags = 0,
+                .bytes = 1,
+                .operands = [_]Operand{
+                    .{ .register = 0b1010 },
+                    .{ .register = 0b0000 },
+                },
+            },
+        },
+    };
+
+    try run_decode_tests(&tests);
+}
+
+test "decode_next_instruction with xlat" {
+    const tests = [_]TestCase{
+        .{
+            .input = &[_]u8{0b11010111},
+            .output = Instruction{
+                .op_code = .xlat,
+                .flags = 0,
+                .bytes = 1,
+                .operands = [_]Operand{
+                    .none,
+                    .none,
+                },
+            },
+        },
+    };
+
+    try run_decode_tests(&tests);
+}
+
+test "decode_next_instruction with lea" {
+    const tests = [_]TestCase{
+        .{
+            .input = &[_]u8{ 0b10001101, 0b10000001, 0b10001100, 0b00000101 },
+            .output = Instruction{
+                .op_code = .lea,
+                .flags = 1,
+                .bytes = 4,
+                .operands = [_]Operand{
+                    .{ .register = 0b1000 },
+                    .{ .memory = .{ .ptr = 0b001, .displacement = 1420, .is_direct = false } },
+                },
+            },
+        },
+        .{
+            .input = &[_]u8{ 0b10001101, 0b01011110, 0b11001110 },
+            .output = Instruction{
+                .op_code = .lea,
+                .flags = 1,
+                .bytes = 3,
+                .operands = [_]Operand{
+                    .{ .register = 0b1011 },
+                    .{ .memory = .{ .ptr = 0b110, .displacement = -50, .is_direct = false } },
+                },
+            },
+        },
+        .{
+            .input = &[_]u8{ 0b10001101, 0b10100110, 0b00010101, 0b11111100 },
+            .output = Instruction{
+                .op_code = .lea,
+                .flags = 1,
+                .bytes = 4,
+                .operands = [_]Operand{
+                    .{ .register = 0b1100 },
+                    .{ .memory = .{ .ptr = 0b110, .displacement = -1003, .is_direct = false } },
+                },
+            },
+        },
+        .{
+            .input = &[_]u8{ 0b10001101, 0b01111000, 0b11111001 },
+            .output = Instruction{
+                .op_code = .lea,
+                .flags = 1,
+                .bytes = 3,
+                .operands = [_]Operand{
+                    .{ .register = 0b1111 },
+                    .{ .memory = .{ .ptr = 0b000, .displacement = -7, .is_direct = false } },
+                },
+            },
+        },
+    };
+
+    try run_decode_tests(&tests);
+}
+
+test "decode_next_instruction with lds" {
+    const tests = [_]TestCase{
+        .{
+            .input = &[_]u8{ 0b11000101, 0b10000001, 0b10001100, 0b00000101 },
+            .output = Instruction{
+                .op_code = .lds,
+                .flags = 1,
+                .bytes = 4,
+                .operands = [_]Operand{
+                    .{ .register = 0b1000 },
+                    .{ .memory = .{ .ptr = 0b001, .displacement = 1420, .is_direct = false } },
+                },
+            },
+        },
+        .{
+            .input = &[_]u8{ 0b11000101, 0b01011110, 0b11001110 },
+            .output = Instruction{
+                .op_code = .lds,
+                .flags = 1,
+                .bytes = 3,
+                .operands = [_]Operand{
+                    .{ .register = 0b1011 },
+                    .{ .memory = .{ .ptr = 0b110, .displacement = -50, .is_direct = false } },
+                },
+            },
+        },
+        .{
+            .input = &[_]u8{ 0b11000101, 0b10100110, 0b00010101, 0b11111100 },
+            .output = Instruction{
+                .op_code = .lds,
+                .flags = 1,
+                .bytes = 4,
+                .operands = [_]Operand{
+                    .{ .register = 0b1100 },
+                    .{ .memory = .{ .ptr = 0b110, .displacement = -1003, .is_direct = false } },
+                },
+            },
+        },
+        .{
+            .input = &[_]u8{ 0b11000101, 0b01111000, 0b11111001 },
+            .output = Instruction{
+                .op_code = .lds,
+                .flags = 1,
+                .bytes = 3,
+                .operands = [_]Operand{
+                    .{ .register = 0b1111 },
+                    .{ .memory = .{ .ptr = 0b000, .displacement = -7, .is_direct = false } },
+                },
+            },
+        },
+    };
+
+    try run_decode_tests(&tests);
+}
+
+test "decode_next_instruction with les" {
+    const tests = [_]TestCase{
+        .{
+            .input = &[_]u8{ 0b11000100, 0b10000001, 0b10001100, 0b00000101 },
+            .output = Instruction{
+                .op_code = .les,
+                .flags = 1,
+                .bytes = 4,
+                .operands = [_]Operand{
+                    .{ .register = 0b1000 },
+                    .{ .memory = .{ .ptr = 0b001, .displacement = 1420, .is_direct = false } },
+                },
+            },
+        },
+        .{
+            .input = &[_]u8{ 0b11000100, 0b01011110, 0b11001110 },
+            .output = Instruction{
+                .op_code = .les,
+                .flags = 1,
+                .bytes = 3,
+                .operands = [_]Operand{
+                    .{ .register = 0b1011 },
+                    .{ .memory = .{ .ptr = 0b110, .displacement = -50, .is_direct = false } },
+                },
+            },
+        },
+        .{
+            .input = &[_]u8{ 0b11000100, 0b10100110, 0b00010101, 0b11111100 },
+            .output = Instruction{
+                .op_code = .les,
+                .flags = 1,
+                .bytes = 4,
+                .operands = [_]Operand{
+                    .{ .register = 0b1100 },
+                    .{ .memory = .{ .ptr = 0b110, .displacement = -1003, .is_direct = false } },
+                },
+            },
+        },
+        .{
+            .input = &[_]u8{ 0b11000100, 0b01111000, 0b11111001 },
+            .output = Instruction{
+                .op_code = .les,
+                .flags = 1,
+                .bytes = 3,
+                .operands = [_]Operand{
+                    .{ .register = 0b1111 },
+                    .{ .memory = .{ .ptr = 0b000, .displacement = -7, .is_direct = false } },
+                },
+            },
+        },
+    };
+
+    try run_decode_tests(&tests);
+}
+
+test "decode_next_instruction with lahf, sahf, pushf, popf" {
+    const tests = [_]TestCase{
+        .{
+            .input = &[_]u8{0b10011111},
+            .output = Instruction{
+                .op_code = .lahf,
+                .flags = 0,
+                .bytes = 1,
+                .operands = [_]Operand{ .none, .none },
+            },
+        },
+        .{
+            .input = &[_]u8{0b10011110},
+            .output = Instruction{
+                .op_code = .sahf,
+                .flags = 0,
+                .bytes = 1,
+                .operands = [_]Operand{ .none, .none },
+            },
+        },
+        .{
+            .input = &[_]u8{0b10011100},
+            .output = Instruction{
+                .op_code = .pushf,
+                .flags = 0,
+                .bytes = 1,
+                .operands = [_]Operand{ .none, .none },
+            },
+        },
+        .{
+            .input = &[_]u8{0b10011101},
+            .output = Instruction{
+                .op_code = .popf,
+                .flags = 0,
+                .bytes = 1,
+                .operands = [_]Operand{ .none, .none },
+            },
+        },
+    };
+
+    try run_decode_tests(&tests);
+}
+
+test "decode_next_instruction with add" {
+    const tests = [_]TestCase{
+        .{
+            .input = &[_]u8{ 0b00000001, 0b11011001 },
+            .output = Instruction{
+                .op_code = .add,
+                .flags = 1,
+                .bytes = 2,
+                .operands = [_]Operand{
+                    .{ .register = 0b1001 },
+                    .{ .register = 0b1011 },
+                },
+            },
+        },
+        .{
+            .input = &[_]u8{ 0b00000010, 0b00000000 },
+            .output = Instruction{
+                .op_code = .add,
+                .flags = 0,
+                .bytes = 2,
+                .operands = [_]Operand{
+                    .{ .register = 0b0000 },
+                    .{ .memory = .{ .ptr = 0b00, .displacement = 0, .is_direct = false } },
+                },
+            },
+        },
+        .{
+            .input = &[_]u8{ 0b00000011, 0b01010110, 0b00000000 },
+            .output = Instruction{
+                .op_code = .add,
+                .flags = 1,
+                .bytes = 3,
+                .operands = [_]Operand{
+                    .{ .register = 0b1010 },
+                    .{ .memory = .{ .ptr = 0b110, .displacement = 0, .is_direct = false } },
+                },
+            },
+        },
+        .{
+            .input = &[_]u8{ 0b00000011, 0b00010110, 0b00000001, 0b00000001 },
+            .output = Instruction{
+                .op_code = .add,
+                .flags = 1,
+                .bytes = 4,
+                .operands = [_]Operand{
+                    .{ .register = 0b1010 },
+                    .{ .memory = .{ .ptr = 0b110, .displacement = 257, .is_direct = true } },
+                },
+            },
+        },
+        .{
+            .input = &[_]u8{ 0b00000000, 0b10000000, 0b10000111, 0b00010011 },
+            .output = Instruction{
+                .op_code = .add,
+                .flags = 2,
+                .bytes = 4,
+                .operands = [_]Operand{
+                    .{ .memory = .{ .ptr = 0b000, .displacement = 4999, .is_direct = false } },
+                    .{ .register = 0b0000 },
                 },
             },
         },
