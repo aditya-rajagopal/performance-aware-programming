@@ -1,21 +1,30 @@
 const Tables = @This();
 
 pub const InstFieldType = enum(u8) {
+    // Single bit fields
     S,
     W,
     D,
     V,
     Z,
+
+    // Information to decide operands
     MOD,
     REG,
     SR,
     RM,
+
+    // Extra data stuff
     DATA_LO,
     DATA_HI,
     DISP_HI,
     DISP_LO,
 
+    // Bit literal
     LITERAL,
+
+    // Extra info needed
+    FLAGS,
     null_field,
 };
 
@@ -62,6 +71,8 @@ fn literal(comptime op_literal: []const u8) InstFieldInfo {
     };
 }
 
+pub const RM_FORCED_W_REG = 0b1;
+
 const D = InstFieldInfo{ .inst_type = .D, .num_bits = 1 };
 const W = InstFieldInfo{ .inst_type = .W, .num_bits = 1 };
 const MOD = InstFieldInfo{ .inst_type = .MOD, .num_bits = 2 };
@@ -74,6 +85,15 @@ const DATA_HI = InstFieldInfo{ .inst_type = .DATA_HI, .num_bits = 0, .payload = 
 const DISP_LO = InstFieldInfo{ .inst_type = .DISP_LO, .num_bits = 0 };
 const DISP_HI_OPT = InstFieldInfo{ .inst_type = .DISP_HI, .num_bits = 0, .payload = 0 };
 const DISP_HI = InstFieldInfo{ .inst_type = .DISP_HI, .num_bits = 0, .payload = 1 };
+const FORCE_RM_WIDE = InstFieldInfo{ .inst_type = .FLAGS, .num_bits = 0, .payload = RM_FORCED_W_REG };
+
+fn Flag(comptime flag: usize) InstFieldInfo {
+    return InstFieldInfo{
+        .inst_type = .FLAGS,
+        .num_bits = 0,
+        .payload = flag,
+    };
+}
 
 fn Set(comptime field_type: InstFieldType, comptime payload: u8) InstFieldInfo {
     return InstFieldInfo{
@@ -97,6 +117,10 @@ pub const Operation = enum(u8) {
     pop_seg,
     xchg_reg_rm,
     xch_reg_acc,
+    in_fixed,
+    in_var, // the variable port will be in dx even if W is 0
+    out_fixed,
+    out_var, // the variable port will be in dx even if W is 0
     add,
 };
 
@@ -106,6 +130,8 @@ pub const Code = enum(u8) {
     pop,
     add,
     xchg,
+    in,
+    out,
     unknown,
 };
 
@@ -129,6 +155,10 @@ pub const op_to_code_map = std.enums.directEnumArrayDefault(
         .pop_seg = .pop,
         .xchg_reg_rm = .xchg,
         .xch_reg_acc = .xchg,
+        .in_fixed = .in,
+        .in_var = .in,
+        .out_fixed = .out,
+        .out_var = .out,
         .add = .add,
     },
 );
@@ -183,6 +213,12 @@ pub const instruction_map = std.enums.directEnumArrayDefault(
 
         .xchg_reg_rm = &[_]InstFieldInfo{ literal("1000011"), W, MOD, REG, RM, Set(.D, 1) },
         .xch_reg_acc = &[_]InstFieldInfo{ literal("10010"), REG, Set(.MOD, 0b11), Set(.RM, 0b00), Set(.W, 1), Set(.D, 0) },
+
+        .in_fixed = &[_]InstFieldInfo{ literal("1110010"), W, DATA_LO, Set(.REG, 0b000), Set(.D, 1) },
+        .in_var = &[_]InstFieldInfo{ literal("1110110"), W, Set(.REG, 0b000), Set(.MOD, 0b11), Set(.RM, 0b010), Set(.D, 1), Flag(RM_FORCED_W_REG) },
+
+        .out_fixed = &[_]InstFieldInfo{ literal("1110011"), W, DATA_LO, Set(.REG, 0b000), Set(.D, 0) },
+        .out_var = &[_]InstFieldInfo{ literal("1110111"), W, Set(.REG, 0b000), Set(.MOD, 0b11), Set(.RM, 0b010), Set(.D, 0), Flag(RM_FORCED_W_REG) },
 
         .add = &[_]InstFieldInfo{
             literal("000000"),

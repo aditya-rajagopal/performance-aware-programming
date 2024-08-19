@@ -51,6 +51,7 @@ fn disassemble_bytecode(self: *Disassembler) !void {
         }
 
         try self.appendOperand(instruction.operands[1], instruction.flags, instruction.operands[0] == .none);
+        std.debug.print("Bytecode decoded: {b:0>8}\n", .{self.bytecode[self.inst_ptr - instruction.bytes .. self.inst_ptr]});
         std.debug.print("Decoded instruction: {s} \n", .{self.disassembly.items[self.disassembly_ptr + 1 ..]});
         self.disassembly_ptr = self.disassembly.items.len;
     }
@@ -67,7 +68,7 @@ fn appendOperand(self: *Disassembler, operand: Tables.Operand, flags: u8, mem_qu
             try self.append(@tagName(register));
         },
         .immediate => |i| {
-            const value: i16 = @bitCast(i);
+            const value: u16 = @bitCast(i);
             const dest_mem_mask: u8 = (flags >> 1) & 1;
             const w: usize = @intCast(flags & 1);
             try self.append(try std.fmt.bufPrint(&buffer, "{s}{d}", .{ qualifier[(w + 1) * dest_mem_mask], value }));

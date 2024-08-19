@@ -60,7 +60,7 @@ pub fn decode_next_instruction(bytecode: []const u8) !Instruction {
                     continue :inst_loop;
                 }
             } else {
-                info[location] = data;
+                info[location] |= data;
             }
 
             set[location] = true;
@@ -79,6 +79,7 @@ pub fn decode_next_instruction(bytecode: []const u8) !Instruction {
     const w_as_int: usize = @intFromEnum(InstFieldType.W);
     const reg_as_int: usize = @intFromEnum(InstFieldType.REG);
     const sr_as_int: usize = @intFromEnum(InstFieldType.SR);
+    const flag_as_int: usize = @intFromEnum(InstFieldType.FLAGS);
 
     const d = info[d_as_int];
     const w = info[w_as_int];
@@ -100,7 +101,8 @@ pub fn decode_next_instruction(bytecode: []const u8) !Instruction {
 
     if (set[mod_as_int]) {
         if (mod == 0b11) {
-            instruction.operands[d] = Operand{ .register = (w << 3) | rm };
+            const rm_forced_wide: u32 = @intFromBool(set[flag_as_int] and (info[flag_as_int] & RM_FORCED_W_REG == 1));
+            instruction.operands[d] = Operand{ .register = ((w | rm_forced_wide) << 3) | rm };
         } else {
             var disp_bytes_to_read: u8 = 0;
 
@@ -125,7 +127,7 @@ pub fn decode_next_instruction(bytecode: []const u8) !Instruction {
 
     if (set[@as(usize, @intFromEnum(InstFieldType.DATA_LO))]) {
         var data_bytes_to_read: usize = 1;
-        const data_hi_loc = @as(usize, @intFromEnum(InstFieldType.DATA_LO));
+        const data_hi_loc = @as(usize, @intFromEnum(InstFieldType.DATA_HI));
         const read_hi = set[data_hi_loc] and ((info[data_hi_loc] == 0 and w == 1) or (info[data_hi_loc] == 1));
 
         data_bytes_to_read += @intCast(@intFromBool(read_hi));
@@ -573,5 +575,6 @@ const InstFieldInfo = tables.InstFieldInfo;
 const Instruction = tables.Instruction;
 const Registers = tables.Registers;
 const Operand = tables.Operand;
+const RM_FORCED_W_REG = tables.RM_FORCED_W_REG;
 const assert = @import("utils").assert;
 const std = @import("std");
