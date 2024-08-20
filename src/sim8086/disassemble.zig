@@ -4,6 +4,10 @@ const testing = std.testing;
 const utils = @import("utils");
 const assert = utils.assert;
 const Tables = @import("tables.zig");
+const op_to_str_map = Tables.op_to_str_map;
+const REP_FLAG = Tables.REP_FLAG;
+const Z_FLAG = Tables.Z_FLAG;
+const W_FLAG = Tables.W_FLAG;
 const Decode = @import("decode.zig");
 
 pub const Disassembler = @This();
@@ -38,10 +42,20 @@ fn disassemble_bytecode(self: *Disassembler) !void {
     self.disassembly_ptr = self.disassembly.items.len - 1;
 
     while (self.inst_ptr < self.bytecode.len) : (try self.append("\n")) {
-        const instruction = try Decode.decode_next_instruction(self.bytecode[self.inst_ptr..]);
+        const instruction = try Decode.decode_next_instruction(self.bytecode[self.inst_ptr..], 0);
         self.inst_ptr += instruction.bytes;
 
-        try self.append(@tagName(instruction.op_code));
+        if (instruction.flags & REP_FLAG != 0) {
+            const z = instruction.flags & Z_FLAG;
+            try self.append(if (z != 0) "rep " else "repne ");
+        }
+
+        try self.append(op_to_str_map[@as(usize, @intFromEnum(instruction.op_code))]);
+
+        if (instruction.flags & REP_FLAG != 0) {
+            const w = instruction.flags & W_FLAG;
+            try self.append(if (w == 1) "w" else "b");
+        }
 
         if (instruction.operands[0] != .none or instruction.operands[1] != .none) {
             try self.append(" ");

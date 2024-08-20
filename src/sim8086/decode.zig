@@ -1,8 +1,16 @@
-// const Decode = @This();
+const mod_as_int: usize = @intFromEnum(InstFieldType.MOD);
+const rm_as_int: usize = @intFromEnum(InstFieldType.RM);
+const d_as_int: usize = @intFromEnum(InstFieldType.D);
+const w_as_int: usize = @intFromEnum(InstFieldType.W);
+const reg_as_int: usize = @intFromEnum(InstFieldType.REG);
+const sr_as_int: usize = @intFromEnum(InstFieldType.SR);
+const flag_as_int: usize = @intFromEnum(InstFieldType.FLAGS);
+const s_as_int: usize = @intFromEnum(InstFieldType.S);
+const v_as_int: usize = @intFromEnum(InstFieldType.V);
+const z_as_int: usize = @intFromEnum(InstFieldType.Z);
 
-pub fn decode_next_instruction(bytecode: []const u8) !Instruction {
-    // std.debug.print("Decoding: {d}\n", .{bytecode});
-    var instruction: Instruction = Instruction{};
+pub fn decode_next_instruction(bytecode: []const u8, flags: u8) !Instruction {
+    var instruction: Instruction = Instruction{ .op_code = .mov_rm_reg, .flags = flags };
     var info = std.enums.directEnumArrayDefault(InstFieldType, u32, 0, 0, .{});
     var set = std.enums.directEnumArrayDefault(InstFieldType, bool, false, 0, .{});
 
@@ -22,7 +30,7 @@ pub fn decode_next_instruction(bytecode: []const u8) !Instruction {
         }
         // std.debug.print("Testing op: {s}\n", .{@tagName(op_to_code_map[i])});
 
-        instruction.op_code = op_to_code_map[i];
+        instruction.op_code = @enumFromInt(i);
         inst_fields = inst;
         info[@as(usize, @intFromEnum(InstFieldType.LITERAL))] = @intCast(i);
         set[@as(usize, @intFromEnum(InstFieldType.LITERAL))] = true;
@@ -72,26 +80,22 @@ pub fn decode_next_instruction(bytecode: []const u8) !Instruction {
 
     assert(found, "Could not find op matching incoming bytecode\n", .{});
 
-    const mod_as_int: usize = @intFromEnum(InstFieldType.MOD);
-    const rm_as_int: usize = @intFromEnum(InstFieldType.RM);
-    const d_as_int: usize = @intFromEnum(InstFieldType.D);
-    const w_as_int: usize = @intFromEnum(InstFieldType.W);
-    const reg_as_int: usize = @intFromEnum(InstFieldType.REG);
-    const sr_as_int: usize = @intFromEnum(InstFieldType.SR);
-    const flag_as_int: usize = @intFromEnum(InstFieldType.FLAGS);
-    const s_as_int: usize = @intFromEnum(InstFieldType.S);
-    const v_as_int: usize = @intFromEnum(InstFieldType.V);
-
     const d = info[d_as_int];
     const w = info[w_as_int];
     const s = info[s_as_int];
     const v = info[v_as_int];
+    const z = info[z_as_int];
 
     const mod = info[mod_as_int];
     const reg = info[reg_as_int];
     const rm = info[rm_as_int];
 
     instruction.flags |= @truncate(w);
+
+    if (z == 1) {
+        std.debug.print("Setting Z flag\n", .{});
+        instruction.flags |= @truncate(Z_FLAG);
+    }
 
     if (set[sr_as_int]) {
         const sr = info[sr_as_int];
@@ -105,7 +109,7 @@ pub fn decode_next_instruction(bytecode: []const u8) !Instruction {
 
     if (set[mod_as_int]) {
         if (mod == 0b11) {
-            const rm_forced_wide: u32 = @intFromBool(set[flag_as_int] and (info[flag_as_int] & RM_FORCED_W_REG == 1));
+            const rm_forced_wide: u32 = @intFromBool(set[flag_as_int] and (info[flag_as_int] & W_FLAG == 1));
             instruction.operands[d] = Operand{ .register = ((w | rm_forced_wide) << 3) | rm };
         } else {
             var disp_bytes_to_read: u8 = 0;
@@ -123,9 +127,6 @@ pub fn decode_next_instruction(bytecode: []const u8) !Instruction {
             instruction.operands[d] = Operand{
                 .memory = .{ .ptr = @truncate(rm), .displacement = disp, .is_direct = direct_addess },
             };
-            if (d == 0) {
-                instruction.flags |= 0b10;
-            }
         }
     }
 
@@ -159,7 +160,12 @@ pub fn decode_next_instruction(bytecode: []const u8) !Instruction {
         }
     }
 
-    instruction.bytes = @truncate(read_pos);
+    if (instruction.op_code == .rep) {
+        instruction.flags |= @truncate(REP_FLAG);
+        instruction = try decode_next_instruction(bytecode[read_pos..], instruction.flags);
+    }
+
+    instruction.bytes += @truncate(read_pos);
 
     return instruction;
 }
@@ -196,7 +202,7 @@ test "decode_next_instruction with mov_reg_rm" {
         .{
             .input = &[_]u8{ 0b10001001, 0b11011001 },
             .output = Instruction{
-                .op_code = .mov,
+                .op_code = .mov_rm_reg,
                 .flags = 1,
                 .bytes = 2,
                 .operands = [_]Operand{
@@ -208,7 +214,7 @@ test "decode_next_instruction with mov_reg_rm" {
         .{
             .input = &[_]u8{ 0b10001010, 0b00000000 },
             .output = Instruction{
-                .op_code = .mov,
+                .op_code = .mov_rm_reg,
                 .flags = 0,
                 .bytes = 2,
                 .operands = [_]Operand{
@@ -220,7 +226,7 @@ test "decode_next_instruction with mov_reg_rm" {
         .{
             .input = &[_]u8{ 0b10001011, 0b01010110, 0b00000000 },
             .output = Instruction{
-                .op_code = .mov,
+                .op_code = .mov_rm_reg,
                 .flags = 1,
                 .bytes = 3,
                 .operands = [_]Operand{
@@ -232,7 +238,7 @@ test "decode_next_instruction with mov_reg_rm" {
         .{
             .input = &[_]u8{ 0b10001011, 0b00010110, 0b00000001, 0b00000001 },
             .output = Instruction{
-                .op_code = .mov,
+                .op_code = .mov_rm_reg,
                 .flags = 1,
                 .bytes = 4,
                 .operands = [_]Operand{
@@ -244,8 +250,8 @@ test "decode_next_instruction with mov_reg_rm" {
         .{
             .input = &[_]u8{ 0b10001000, 0b10000000, 0b10000111, 0b00010011 },
             .output = Instruction{
-                .op_code = .mov,
-                .flags = 2,
+                .op_code = .mov_rm_reg,
+                .flags = 0,
                 .bytes = 4,
                 .operands = [_]Operand{
                     .{ .memory = .{ .ptr = 0b000, .displacement = 4999, .is_direct = false } },
@@ -263,7 +269,7 @@ test "decode_next_instruction with mov_im_reg" {
         .{
             .input = &[_]u8{ 0b10111001, 0b00000001, 0b00000001 },
             .output = Instruction{
-                .op_code = .mov,
+                .op_code = .mov_im_reg,
                 .flags = 1,
                 .bytes = 3,
                 .operands = [_]Operand{
@@ -275,7 +281,7 @@ test "decode_next_instruction with mov_im_reg" {
         .{
             .input = &[_]u8{ 0b10110001, 0b00000001, 0b00000001 },
             .output = Instruction{
-                .op_code = .mov,
+                .op_code = .mov_im_reg,
                 .flags = 0,
                 .bytes = 2,
                 .operands = [_]Operand{
@@ -294,8 +300,8 @@ test "decode_next_instruction with mov_im_rm" {
         .{
             .input = &[_]u8{ 0b11000111, 0b00000001, 0b00000001, 0b00000001 },
             .output = Instruction{
-                .op_code = .mov,
-                .flags = 3,
+                .op_code = .mov_im_rm,
+                .flags = 1,
                 .bytes = 4,
                 .operands = [_]Operand{
                     .{ .memory = .{ .ptr = 0b001, .displacement = 0, .is_direct = false } },
@@ -306,8 +312,8 @@ test "decode_next_instruction with mov_im_rm" {
         .{
             .input = &[_]u8{ 0b11000111, 0b10000001, 0b00000001, 0b00000001, 0b00000001, 0b00000001 },
             .output = Instruction{
-                .op_code = .mov,
-                .flags = 3,
+                .op_code = .mov_im_rm,
+                .flags = 1,
                 .bytes = 6,
                 .operands = [_]Operand{
                     .{ .memory = .{ .ptr = 0b001, .displacement = 257, .is_direct = false } },
@@ -325,7 +331,7 @@ test "decode_next_instruction with mov_memacc" {
         .{
             .input = &[_]u8{ 0b10100001, 0b00000001, 0b00000001 },
             .output = Instruction{
-                .op_code = .mov,
+                .op_code = .mov_mem_acc,
                 .flags = 1,
                 .bytes = 3,
                 .operands = [_]Operand{
@@ -337,7 +343,7 @@ test "decode_next_instruction with mov_memacc" {
         .{
             .input = &[_]u8{ 0b10100000, 0b00000001, 0b00000001 },
             .output = Instruction{
-                .op_code = .mov,
+                .op_code = .mov_mem_acc,
                 .flags = 0,
                 .bytes = 3,
                 .operands = [_]Operand{
@@ -356,8 +362,8 @@ test "decode_next_instruction with mov_acc_mem" {
         .{
             .input = &[_]u8{ 0b10100011, 0b00000001, 0b00000001 },
             .output = Instruction{
-                .op_code = .mov,
-                .flags = 3,
+                .op_code = .mov_acc_mem,
+                .flags = 1,
                 .bytes = 3,
                 .operands = [_]Operand{
                     .{ .memory = .{ .ptr = 0b110, .displacement = 257, .is_direct = true } },
@@ -368,8 +374,8 @@ test "decode_next_instruction with mov_acc_mem" {
         .{
             .input = &[_]u8{ 0b10100010, 0b00000001, 0b00000001 },
             .output = Instruction{
-                .op_code = .mov,
-                .flags = 2,
+                .op_code = .mov_acc_mem,
+                .flags = 0,
                 .bytes = 3,
                 .operands = [_]Operand{
                     .{ .memory = .{ .ptr = 0b110, .displacement = 257, .is_direct = true } },
@@ -387,7 +393,7 @@ test "decode_next_instruction with mov_rm_sr" {
         .{
             .input = &[_]u8{ 0b10001110, 0b11000000 },
             .output = Instruction{
-                .op_code = .mov,
+                .op_code = .mov_rm_sr,
                 .flags = 1,
                 .bytes = 2,
                 .operands = [_]Operand{
@@ -399,7 +405,7 @@ test "decode_next_instruction with mov_rm_sr" {
         .{
             .input = &[_]u8{ 0b10001100, 0b11000000 },
             .output = Instruction{
-                .op_code = .mov,
+                .op_code = .mov_rm_sr,
                 .flags = 1,
                 .bytes = 2,
                 .operands = [_]Operand{
@@ -411,7 +417,7 @@ test "decode_next_instruction with mov_rm_sr" {
         .{
             .input = &[_]u8{ 0b10001110, 0b01000000, 0b00000000, 0b00000001 },
             .output = Instruction{
-                .op_code = .mov,
+                .op_code = .mov_rm_sr,
                 .flags = 1,
                 .bytes = 3,
                 .operands = [_]Operand{
@@ -423,7 +429,7 @@ test "decode_next_instruction with mov_rm_sr" {
         .{
             .input = &[_]u8{ 0b10001110, 0b10011001, 0b00000001, 0b00000001 },
             .output = Instruction{
-                .op_code = .mov,
+                .op_code = .mov_rm_sr,
                 .flags = 1,
                 .bytes = 4,
                 .operands = [_]Operand{
@@ -442,7 +448,7 @@ test "decode_next_instruction with push" {
         .{
             .input = &[_]u8{ 0b11111111, 0b00110001, 0b00000001 },
             .output = Instruction{
-                .op_code = .push,
+                .op_code = .push_rm,
                 .flags = 1,
                 .bytes = 2,
                 .operands = [_]Operand{
@@ -454,7 +460,7 @@ test "decode_next_instruction with push" {
         .{
             .input = &[_]u8{ 0b11111111, 0b11110000, 0b00000001 },
             .output = Instruction{
-                .op_code = .push,
+                .op_code = .push_rm,
                 .flags = 1,
                 .bytes = 2,
                 .operands = [_]Operand{
@@ -473,7 +479,7 @@ test "decode_next_instruction with pop" {
         .{
             .input = &[_]u8{ 0b10001111, 0b00000001, 0b00000001 },
             .output = Instruction{
-                .op_code = .pop,
+                .op_code = .pop_rm,
                 .flags = 1,
                 .bytes = 2,
                 .operands = [_]Operand{
@@ -492,7 +498,7 @@ test "decode_next_instruction with xchg" {
         .{
             .input = &[_]u8{ 0b10000111, 0b10001001, 0b00000001, 0b00000001 },
             .output = Instruction{
-                .op_code = .xchg,
+                .op_code = .xchg_reg_rm,
                 .flags = 1,
                 .bytes = 4,
                 .operands = [_]Operand{
@@ -504,7 +510,7 @@ test "decode_next_instruction with xchg" {
         .{
             .input = &[_]u8{0b10010111},
             .output = Instruction{
-                .op_code = .xchg,
+                .op_code = .xch_reg_acc,
                 .flags = 1,
                 .bytes = 1,
                 .operands = [_]Operand{
@@ -523,7 +529,7 @@ test "decode_next_instruction with in" {
         .{
             .input = &[_]u8{ 0b11100100, 0b11001000 },
             .output = Instruction{
-                .op_code = .in,
+                .op_code = .in_fixed,
                 .flags = 0,
                 .bytes = 2,
                 .operands = [_]Operand{
@@ -535,7 +541,7 @@ test "decode_next_instruction with in" {
         .{
             .input = &[_]u8{0b11101100},
             .output = Instruction{
-                .op_code = .in,
+                .op_code = .in_var,
                 .flags = 0,
                 .bytes = 1,
                 .operands = [_]Operand{
@@ -547,7 +553,7 @@ test "decode_next_instruction with in" {
         .{
             .input = &[_]u8{0b11101101},
             .output = Instruction{
-                .op_code = .in,
+                .op_code = .in_var,
                 .flags = 1,
                 .bytes = 1,
                 .operands = [_]Operand{
@@ -566,7 +572,7 @@ test "decode_next_instruction with out" {
         .{
             .input = &[_]u8{ 0b11100111, 0b00101100 },
             .output = Instruction{
-                .op_code = .out,
+                .op_code = .out_fixed,
                 .flags = 1,
                 .bytes = 2,
                 .operands = [_]Operand{
@@ -578,7 +584,7 @@ test "decode_next_instruction with out" {
         .{
             .input = &[_]u8{0b11101110},
             .output = Instruction{
-                .op_code = .out,
+                .op_code = .out_var,
                 .flags = 0,
                 .bytes = 1,
                 .operands = [_]Operand{
@@ -824,7 +830,7 @@ test "decode_next_instruction with add" {
         .{
             .input = &[_]u8{ 0b00000001, 0b11011001 },
             .output = Instruction{
-                .op_code = .add,
+                .op_code = .add_reg_rm,
                 .flags = 1,
                 .bytes = 2,
                 .operands = [_]Operand{
@@ -836,7 +842,7 @@ test "decode_next_instruction with add" {
         .{
             .input = &[_]u8{ 0b00000010, 0b00000000 },
             .output = Instruction{
-                .op_code = .add,
+                .op_code = .add_reg_rm,
                 .flags = 0,
                 .bytes = 2,
                 .operands = [_]Operand{
@@ -848,7 +854,7 @@ test "decode_next_instruction with add" {
         .{
             .input = &[_]u8{ 0b00000011, 0b01010110, 0b00000000 },
             .output = Instruction{
-                .op_code = .add,
+                .op_code = .add_reg_rm,
                 .flags = 1,
                 .bytes = 3,
                 .operands = [_]Operand{
@@ -860,7 +866,7 @@ test "decode_next_instruction with add" {
         .{
             .input = &[_]u8{ 0b00000011, 0b00010110, 0b00000001, 0b00000001 },
             .output = Instruction{
-                .op_code = .add,
+                .op_code = .add_reg_rm,
                 .flags = 1,
                 .bytes = 4,
                 .operands = [_]Operand{
@@ -872,8 +878,8 @@ test "decode_next_instruction with add" {
         .{
             .input = &[_]u8{ 0b00000000, 0b10000000, 0b10000111, 0b00010011 },
             .output = Instruction{
-                .op_code = .add,
-                .flags = 2,
+                .op_code = .add_reg_rm,
+                .flags = 0,
                 .bytes = 4,
                 .operands = [_]Operand{
                     .{ .memory = .{ .ptr = 0b000, .displacement = 4999, .is_direct = false } },
@@ -884,7 +890,7 @@ test "decode_next_instruction with add" {
         .{
             .input = &[_]u8{ 0b10000001, 0b011000100, 0b10001000, 0b00000001 },
             .output = Instruction{
-                .op_code = .add,
+                .op_code = .add_im_rm,
                 .flags = 1,
                 .bytes = 4,
                 .operands = [_]Operand{
@@ -896,7 +902,7 @@ test "decode_next_instruction with add" {
         .{
             .input = &[_]u8{ 0b00000100, 0b00001001 },
             .output = Instruction{
-                .op_code = .add,
+                .op_code = .add_im_acc,
                 .flags = 0,
                 .bytes = 2,
                 .operands = [_]Operand{
@@ -915,7 +921,7 @@ test "decode_next_instruction with adc" {
         .{
             .input = &[_]u8{ 0b00010001, 0b11011001 },
             .output = Instruction{
-                .op_code = .adc,
+                .op_code = .adc_reg_rm,
                 .flags = 1,
                 .bytes = 2,
                 .operands = [_]Operand{
@@ -927,7 +933,7 @@ test "decode_next_instruction with adc" {
         .{
             .input = &[_]u8{ 0b00010010, 0b00000000 },
             .output = Instruction{
-                .op_code = .adc,
+                .op_code = .adc_reg_rm,
                 .flags = 0,
                 .bytes = 2,
                 .operands = [_]Operand{
@@ -939,7 +945,7 @@ test "decode_next_instruction with adc" {
         .{
             .input = &[_]u8{ 0b00010011, 0b01010110, 0b00000000 },
             .output = Instruction{
-                .op_code = .adc,
+                .op_code = .adc_reg_rm,
                 .flags = 1,
                 .bytes = 3,
                 .operands = [_]Operand{
@@ -951,7 +957,7 @@ test "decode_next_instruction with adc" {
         .{
             .input = &[_]u8{ 0b00010011, 0b00010110, 0b00000001, 0b00000001 },
             .output = Instruction{
-                .op_code = .adc,
+                .op_code = .adc_reg_rm,
                 .flags = 1,
                 .bytes = 4,
                 .operands = [_]Operand{
@@ -963,8 +969,8 @@ test "decode_next_instruction with adc" {
         .{
             .input = &[_]u8{ 0b00010000, 0b10000000, 0b10000111, 0b00010011 },
             .output = Instruction{
-                .op_code = .adc,
-                .flags = 2,
+                .op_code = .adc_reg_rm,
+                .flags = 0,
                 .bytes = 4,
                 .operands = [_]Operand{
                     .{ .memory = .{ .ptr = 0b000, .displacement = 4999, .is_direct = false } },
@@ -975,7 +981,7 @@ test "decode_next_instruction with adc" {
         .{
             .input = &[_]u8{ 0b10000001, 0b011010100, 0b10001000, 0b00000001 },
             .output = Instruction{
-                .op_code = .adc,
+                .op_code = .adc_im_rm,
                 .flags = 1,
                 .bytes = 4,
                 .operands = [_]Operand{
@@ -987,7 +993,7 @@ test "decode_next_instruction with adc" {
         .{
             .input = &[_]u8{ 0b00010100, 0b00001001 },
             .output = Instruction{
-                .op_code = .adc,
+                .op_code = .adc_im_acc,
                 .flags = 0,
                 .bytes = 2,
                 .operands = [_]Operand{
@@ -1006,7 +1012,7 @@ test "decode_next_instruction with inc" {
         .{
             .input = &[_]u8{0b01000001},
             .output = Instruction{
-                .op_code = .inc,
+                .op_code = .inc_reg,
                 .flags = 1,
                 .bytes = 1,
                 .operands = [_]Operand{
@@ -1018,7 +1024,7 @@ test "decode_next_instruction with inc" {
         .{
             .input = &[_]u8{ 0b11111111, 0b10000011, 0b11000100, 0b11011000 },
             .output = Instruction{
-                .op_code = .inc,
+                .op_code = .inc_rm,
                 .flags = 1,
                 .bytes = 4,
                 .operands = [_]Operand{
@@ -1053,7 +1059,7 @@ test "decode_next_instruction with aam" {
 
 fn run_decode_tests(tests: []const TestCase) !void {
     for (tests) |t| {
-        const instruction_out = decode_next_instruction(t.input);
+        const instruction_out = decode_next_instruction(t.input, 0);
         try std.testing.expectEqualDeep(t.output, instruction_out);
     }
 }
@@ -1067,6 +1073,8 @@ const InstFieldInfo = tables.InstFieldInfo;
 const Instruction = tables.Instruction;
 const Registers = tables.Registers;
 const Operand = tables.Operand;
-const RM_FORCED_W_REG = tables.RM_FORCED_W_REG;
+const W_FLAG = tables.W_FLAG;
+const Z_FLAG = tables.Z_FLAG;
+const REP_FLAG = tables.REP_FLAG;
 const assert = @import("utils").assert;
 const std = @import("std");
