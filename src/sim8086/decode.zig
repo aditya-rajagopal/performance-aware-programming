@@ -8,6 +8,10 @@ const flag_as_int: usize = @intFromEnum(InstFieldType.FLAGS);
 const s_as_int: usize = @intFromEnum(InstFieldType.S);
 const v_as_int: usize = @intFromEnum(InstFieldType.V);
 const z_as_int: usize = @intFromEnum(InstFieldType.Z);
+const disp_lo_loc: usize = @intFromEnum(InstFieldType.DISP_LO);
+const disp_hi_loc = @as(usize, @intFromEnum(InstFieldType.DISP_HI));
+const data_lo_loc: usize = @intFromEnum(InstFieldType.DATA_LO);
+const data_hi_loc = @as(usize, @intFromEnum(InstFieldType.DATA_HI));
 
 pub fn decode_next_instruction(bytecode: []const u8, flags: u8) !Instruction {
     var instruction: Instruction = Instruction{ .op_code = .mov_rm_reg, .flags = flags };
@@ -107,52 +111,57 @@ pub fn decode_next_instruction(bytecode: []const u8, flags: u8) !Instruction {
         instruction.operands[d ^ 1] = Operand{ .register = (w << 3) | reg };
     }
 
+    const is_rel_jump: u8 = @as(u8, @truncate(info[flag_as_int])) & REL_JUMP_FLAG;
+    instruction.flags |= is_rel_jump;
+
+    // check if you need to write something
+    var disp_bytes_to_read: u8 = 0;
+
+    const direct_addess: bool = mod == 0b00 and rm == 0b110;
+    const read_disp_lo: bool = mod == 0b01 or mod == 0b10 or direct_addess or set[disp_lo_loc];
+    const read_disp_hi: bool = mod == 0b10 or direct_addess or set[disp_hi_loc];
+
+    disp_bytes_to_read += @intCast(@intFromBool(read_disp_lo));
+    disp_bytes_to_read += @intCast(@intFromBool(read_disp_hi));
+
+    var data_bytes_to_read: usize = @intFromBool(set[data_lo_loc]);
+
+    const read_hi = set[data_hi_loc] and ((info[data_hi_loc] == 0 and w == 1 and s != 1) or (info[data_hi_loc] == 1));
+
+    data_bytes_to_read += @intCast(@intFromBool(read_hi));
+
+    const disp: i16 = @bitCast(try parse_bytes_as_int(bytecode[read_pos..], disp_bytes_to_read, !read_disp_hi));
+    read_pos += disp_bytes_to_read;
+    const data: u16 = try parse_bytes_as_int(bytecode[read_pos..], data_bytes_to_read, s == 1);
+    read_pos += data_bytes_to_read;
+
     if (set[mod_as_int]) {
         if (mod == 0b11) {
             const rm_forced_wide: u32 = @intFromBool(set[flag_as_int] and (info[flag_as_int] & W_FLAG == 1));
             instruction.operands[d] = Operand{ .register = ((w | rm_forced_wide) << 3) | rm };
         } else {
-            var disp_bytes_to_read: u8 = 0;
-
-            const direct_addess: bool = mod == 0b00 and rm == 0b110;
-            const read_disp_lo: bool = mod == 0b01 or mod == 0b10 or direct_addess;
-            const read_disp_hi: bool = mod == 0b10 or direct_addess;
-
-            disp_bytes_to_read += @intCast(@intFromBool(read_disp_lo));
-            disp_bytes_to_read += @intCast(@intFromBool(read_disp_hi));
-
-            const disp: i16 = @bitCast(try parse_bytes_as_int(bytecode[read_pos..], disp_bytes_to_read, !read_disp_hi));
-
-            read_pos += disp_bytes_to_read;
             instruction.operands[d] = Operand{
                 .memory = .{ .ptr = @truncate(rm), .displacement = disp, .is_direct = direct_addess },
             };
         }
     }
 
-    if (set[@as(usize, @intFromEnum(InstFieldType.DATA_LO))]) {
-        var data_bytes_to_read: usize = 1;
-        const data_hi_loc = @as(usize, @intFromEnum(InstFieldType.DATA_HI));
-        const read_hi = set[data_hi_loc] and ((info[data_hi_loc] == 0 and w == 1 and s != 1) or (info[data_hi_loc] == 1));
+    // normally put the immediate value in position 1. But sometimes pos 0 might be empty. If that is
+    // the case then put it in position 0.
+    var position: usize = 1;
+    if (instruction.operands[0] == .none) {
+        position = 0;
+    }
 
-        data_bytes_to_read += @intCast(@intFromBool(read_hi));
-
-        const data: u16 = @bitCast(try parse_bytes_as_int(bytecode[read_pos..], data_bytes_to_read, s == 1));
-        read_pos += data_bytes_to_read;
-
-        // normally put the immediate value in position 1. But sometimes pos 0 might be empty. If that is
-        // the case then put it in position 0.
-        var position: usize = 1;
-        if (instruction.operands[0] == .none) {
-            position = 0;
-        }
-
+    if (set[data_lo_loc] and set[disp_lo_loc] and !set[mod_as_int]) {
+        instruction.operands[position] = .{
+            .explicit_segment = .{ .displacement = disp, .segment = data },
+        };
+    } else if (set[data_lo_loc]) {
         instruction.operands[position] = .{ .immediate = data };
+    } else if (set[disp_lo_loc] and is_rel_jump != 0) {
+        instruction.operands[position] = .{ .immediate = @bitCast(disp) };
     } else if (set[v_as_int]) {
-        var position: usize = 1;
-        if (instruction.operands[0] == .none) {
-            position = 0;
-        }
         if (v == 1) {
             instruction.operands[position] = .{ .register = 0b0001 };
         } else {
@@ -1076,5 +1085,6 @@ const Operand = tables.Operand;
 const W_FLAG = tables.W_FLAG;
 const Z_FLAG = tables.Z_FLAG;
 const REP_FLAG = tables.REP_FLAG;
+const REL_JUMP_FLAG = tables.REL_JUMP_FLAG;
 const assert = @import("utils").assert;
 const std = @import("std");

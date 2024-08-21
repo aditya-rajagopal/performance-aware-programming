@@ -75,6 +75,7 @@ fn literal(comptime op_literal: []const u8) InstFieldInfo {
 pub const W_FLAG = 0b1;
 pub const Z_FLAG = 0b10;
 pub const REP_FLAG = 0b100;
+pub const REL_JUMP_FLAG = 0b1000;
 
 const D = InstFieldInfo{ .inst_type = .D, .num_bits = 1 };
 const S = InstFieldInfo{ .inst_type = .S, .num_bits = 1 };
@@ -194,6 +195,19 @@ pub const Operation = enum(u8) {
     scas,
     lods,
     stos,
+    call_dir_seg,
+    call_ind_seg,
+    call_dir_iseg,
+    call_ind_iseg,
+    jmp_dir_seg,
+    jmp_dir_seg_short,
+    jmp_ind_seg,
+    jmp_dir_iseg,
+    jmp_ind_iseg,
+    ret_seg,
+    ret_seg_sp,
+    ret_iseg,
+    ret_iseg_sp,
 };
 
 pub const op_to_str_map = std.enums.directEnumArrayDefault(Operation, []const u8, null, 256, .{
@@ -282,6 +296,19 @@ pub const op_to_str_map = std.enums.directEnumArrayDefault(Operation, []const u8
     .scas = "scas",
     .lods = "lods",
     .stos = "stos",
+    .call_dir_seg = "call",
+    .call_ind_seg = "call",
+    .call_dir_iseg = "call",
+    .call_ind_iseg = "call",
+    .jmp_dir_seg = "jmp",
+    .jmp_dir_seg_short = "jmp",
+    .jmp_ind_seg = "jmp",
+    .jmp_dir_iseg = "jmp",
+    .jmp_ind_iseg = "jmp",
+    .ret_seg = "ret",
+    .ret_seg_sp = "ret",
+    .ret_iseg = "ret",
+    .ret_iseg_sp = "ret",
 });
 
 fn GetInstructionMap(
@@ -420,6 +447,22 @@ pub const instruction_map = GetInstructionMap(
         .scas = &[_]InstFieldInfo{ literal("1010111"), W },
         .lods = &[_]InstFieldInfo{ literal("1010110"), W },
         .stos = &[_]InstFieldInfo{ literal("1010101"), W },
+
+        .call_dir_seg = &[_]InstFieldInfo{ literal("11101000"), DISP_LO, DISP_HI, Flag(REL_JUMP_FLAG) },
+        .call_ind_seg = &[_]InstFieldInfo{ literal("11111111"), MOD, literal("010"), RM, Set(.W, 1) },
+        .call_dir_iseg = &[_]InstFieldInfo{ literal("10011010"), DISP_LO, DISP_HI, DATA_LO, DATA_HI, Set(.W, 1) },
+        .call_ind_iseg = &[_]InstFieldInfo{ literal("11111111"), MOD, literal("011"), RM, Set(.W, 1) },
+
+        .jmp_dir_seg = &[_]InstFieldInfo{ literal("11101001"), DISP_LO, DISP_HI, Flag(REL_JUMP_FLAG) },
+        .jmp_dir_seg_short = &[_]InstFieldInfo{ literal("11101011"), DISP_LO, Flag(REL_JUMP_FLAG) },
+        .jmp_ind_seg = &[_]InstFieldInfo{ literal("11111111"), MOD, literal("100"), RM, Set(.W, 1) },
+        .jmp_dir_iseg = &[_]InstFieldInfo{ literal("11101010"), DISP_LO, DISP_HI, DATA_LO, DATA_HI, Set(.W, 1) },
+        .jmp_ind_iseg = &[_]InstFieldInfo{ literal("11111111"), MOD, literal("101"), RM, Set(.W, 1) },
+
+        .ret_seg = &[_]InstFieldInfo{literal("11000011")},
+        .ret_seg_sp = &[_]InstFieldInfo{ literal("11000010"), DATA_LO, DATA_HI },
+        .ret_iseg = &[_]InstFieldInfo{literal("11001011")},
+        .ret_iseg_sp = &[_]InstFieldInfo{ literal("11001010"), DATA_LO, DATA_HI },
     },
 );
 
@@ -433,6 +476,7 @@ pub const Operand = union(enum) {
     memory: EffectiveAddressExpression,
     register: u32,
     immediate: u16,
+    explicit_segment: struct { displacement: i16, segment: u16 },
     none: void,
 };
 

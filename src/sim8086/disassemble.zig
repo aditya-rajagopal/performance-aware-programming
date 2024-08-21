@@ -8,6 +8,8 @@ const op_to_str_map = Tables.op_to_str_map;
 const REP_FLAG = Tables.REP_FLAG;
 const Z_FLAG = Tables.Z_FLAG;
 const W_FLAG = Tables.W_FLAG;
+const REL_JUMP_FLAG = Tables.REL_JUMP_FLAG;
+const Instruction = Tables.Instruction;
 const Decode = @import("decode.zig");
 
 pub const Disassembler = @This();
@@ -42,6 +44,7 @@ fn disassemble_bytecode(self: *Disassembler) !void {
     self.disassembly_ptr = self.disassembly.items.len - 1;
 
     while (self.inst_ptr < self.bytecode.len) : (try self.append("\n")) {
+        // std.debug.print("Decoding: {b}\n", .{self.bytecode[self.inst_ptr .. self.inst_ptr + 3]});
         const instruction = try Decode.decode_next_instruction(self.bytecode[self.inst_ptr..], 0);
         self.inst_ptr += instruction.bytes;
 
@@ -61,7 +64,7 @@ fn disassemble_bytecode(self: *Disassembler) !void {
             try self.append(" ");
         }
 
-        try self.appendOperands(instruction.operands, instruction.flags);
+        try self.appendOperands(instruction);
 
         // try self.appendOperand(instruction.operands[1], instruction.flags);
 
@@ -72,13 +75,13 @@ fn disassemble_bytecode(self: *Disassembler) !void {
     _ = self.disassembly.pop(); // remove the last \n
 }
 
-fn appendOperands(self: *Disassembler, operands: [2]Tables.Operand, flags: u8) !void {
+fn appendOperands(self: *Disassembler, instruction: Instruction) !void {
     var buffer: [1024]u8 = undefined;
 
     var seperator: []const u8 = "";
-    for (operands) |operand| {
+    for (instruction.operands) |operand| {
         try self.append(seperator);
-        if (operands[1] != .none and operands[0] != .none) {
+        if (instruction.operands[1] != .none and instruction.operands[0] != .none) {
             seperator = ", ";
         }
 
@@ -88,8 +91,19 @@ fn appendOperands(self: *Disassembler, operands: [2]Tables.Operand, flags: u8) !
                 try self.append(@tagName(register));
             },
             .immediate => |i| {
-                const value: u16 = @bitCast(i);
-                try self.append(try std.fmt.bufPrint(&buffer, "{d}", .{value}));
+                if (instruction.flags & REL_JUMP_FLAG != 0) {
+                    const value: i16 = @bitCast(i);
+                    var sign: []const u8 = undefined;
+                    if (value < 0) {
+                        sign = "-";
+                    } else {
+                        sign = "+";
+                    }
+                    try self.append(try std.fmt.bufPrint(&buffer, "${s}{d}", .{ sign, value + instruction.bytes }));
+                } else {
+                    const value: u16 = @bitCast(i);
+                    try self.append(try std.fmt.bufPrint(&buffer, "{d}", .{value}));
+                }
             },
             .memory => |m| {
                 const displacement = m.displacement;
@@ -99,8 +113,8 @@ fn appendOperands(self: *Disassembler, operands: [2]Tables.Operand, flags: u8) !
                 } else {
                     sign = "+";
                 }
-                if (operands[0] != .register) {
-                    const w: usize = @intCast(flags & 1);
+                if (instruction.operands[0] != .register) {
+                    const w: usize = @intCast(instruction.flags & 1);
                     const qualifier = [_][]const u8{ "byte ", "word " };
                     try self.append(qualifier[w]);
                 }
@@ -112,6 +126,9 @@ fn appendOperands(self: *Disassembler, operands: [2]Tables.Operand, flags: u8) !
                 } else {
                     try self.append(try std.fmt.bufPrint(&buffer, "[{s} {s} {d}]", .{ effective_addr, sign, @abs(displacement) }));
                 }
+            },
+            .explicit_segment => |s| {
+                try self.append(try std.fmt.bufPrint(&buffer, "{d}:{d}", .{ s.segment, s.displacement }));
             },
             .none => continue,
         }
