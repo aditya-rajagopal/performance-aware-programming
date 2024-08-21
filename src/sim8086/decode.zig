@@ -101,7 +101,6 @@ pub fn decode_next_instruction(bytecode: []const u8, flags: u8, segment_override
     instruction.flags |= @truncate(w);
 
     if (z == 1) {
-        std.debug.print("Setting Z flag\n", .{});
         instruction.flags |= @truncate(Z_FLAG);
     }
 

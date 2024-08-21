@@ -82,8 +82,8 @@ fn disassemble_bytecode(self: *Disassembler) !void {
 
         try self.appendOperands(instruction);
 
-        std.debug.print("Bytecode decoded: inst_ptr: {d}, {b:0>8}\n", .{ self.inst_ptr - instruction.bytes, self.bytecode[self.inst_ptr - instruction.bytes .. self.inst_ptr] });
-        std.debug.print("Decoded instruction: {s} \n", .{self.disassembly.items[self.disassembly_ptr + 1 ..]});
+        // std.debug.print("Bytecode decoded: inst_ptr: {d}, {b:0>8}\n", .{ self.inst_ptr - instruction.bytes, self.bytecode[self.inst_ptr - instruction.bytes .. self.inst_ptr] });
+        // std.debug.print("Decoded instruction: {s} \n", .{self.disassembly.items[self.disassembly_ptr + 1 ..]});
         self.disassembly_ptr = self.disassembly.items.len;
     }
     _ = self.disassembly.pop(); // remove the last \n
