@@ -600,29 +600,6 @@ pub const Instruction = struct {
     operands: [2]Operand = [_]Operand{ .none, .none }, // the first and second operand that this op works on.
 };
 
-pub const instruction_code = enum(u8) {
-    mov_rm_reg = 0b10001000,
-    mov_im_rm = 0b11000110,
-    mov_im_reg = 0b10110000,
-    mov_mem_acc = 0b10100000, // mov_acc_mem = 0b10100010 is the opposite. Check 2nd bit for direction
-    add = 0b00000000,
-    _,
-};
-
-pub const inst_to_string = std.enums.directEnumArrayDefault(
-    instruction_code,
-    []const u8,
-    "unknown",
-    256,
-    .{
-        .mov_rm_reg = "mov",
-        .mov_im_rm = "mov",
-        .mov_im_reg = "mov",
-        .mov_mem_acc = "mov",
-        .add = "add",
-    },
-);
-
 /// to index into this you can index into this array using the R/M field
 /// index 7 is special when RM is 00 so keep that in mind
 pub const EffectiveAddress = [_][]const u8{
