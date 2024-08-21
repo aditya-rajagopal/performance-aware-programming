@@ -76,6 +76,9 @@ pub const W_FLAG = 0b1;
 pub const Z_FLAG = 0b10;
 pub const REP_FLAG = 0b100;
 pub const REL_JUMP_FLAG = 0b1000;
+pub const LOCK_FLAG = 0b10000;
+pub const SEGMENT_OVERRIDE_FLAG = 0b100000;
+pub const FAR_FLAG = 0b1000000;
 
 const D = InstFieldInfo{ .inst_type = .D, .num_bits = 1 };
 const S = InstFieldInfo{ .inst_type = .S, .num_bits = 1 };
@@ -123,7 +126,7 @@ pub const Operation = enum(u8) {
     pop_reg,
     pop_seg,
     xchg_reg_rm,
-    xch_reg_acc,
+    xchg_reg_acc,
     in_fixed,
     in_var, // the variable port will be in dx even if W is 0
     out_fixed,
@@ -206,8 +209,43 @@ pub const Operation = enum(u8) {
     jmp_ind_iseg,
     ret_seg,
     ret_seg_sp,
-    ret_iseg,
-    ret_iseg_sp,
+    retf_iseg,
+    retf_iseg_sp,
+    je,
+    jl,
+    jle,
+    jb,
+    jbe,
+    jp,
+    jo,
+    js,
+    jne,
+    jnl,
+    jg,
+    jnb,
+    ja,
+    jnp,
+    jno,
+    jns,
+    loop,
+    loopz,
+    loopnz,
+    jcxz,
+    int,
+    int3,
+    into,
+    iret,
+    clc,
+    cmc,
+    stc,
+    cld,
+    std,
+    cli,
+    sti,
+    hlt,
+    wait,
+    lock,
+    segment,
 };
 
 pub const op_to_str_map = std.enums.directEnumArrayDefault(Operation, []const u8, null, 256, .{
@@ -224,7 +262,7 @@ pub const op_to_str_map = std.enums.directEnumArrayDefault(Operation, []const u8
     .pop_reg = "pop",
     .pop_seg = "pop",
     .xchg_reg_rm = "xchg",
-    .xch_reg_acc = "xchg",
+    .xchg_reg_acc = "xchg",
     .in_fixed = "in",
     .in_var = "in",
     .out_fixed = "out",
@@ -307,8 +345,43 @@ pub const op_to_str_map = std.enums.directEnumArrayDefault(Operation, []const u8
     .jmp_ind_iseg = "jmp",
     .ret_seg = "ret",
     .ret_seg_sp = "ret",
-    .ret_iseg = "ret",
-    .ret_iseg_sp = "ret",
+    .retf_iseg = "retf",
+    .retf_iseg_sp = "retf",
+    .je = "je",
+    .jl = "jl",
+    .jle = "jle",
+    .jb = "jb",
+    .jbe = "jbe",
+    .jp = "jp",
+    .jo = "jo",
+    .js = "js",
+    .jne = "jne",
+    .jnl = "jnl",
+    .jg = "jg",
+    .jnb = "jnb",
+    .ja = "ja",
+    .jnp = "jnp",
+    .jno = "jno",
+    .jns = "jns",
+    .loop = "loop",
+    .loopz = "loopz",
+    .loopnz = "loopnz",
+    .jcxz = "jcxz",
+    .int = "int",
+    .int3 = "int3",
+    .into = "into",
+    .iret = "iret",
+    .clc = "clc",
+    .cmc = "cmc",
+    .stc = "stc",
+    .cld = "cld",
+    .std = "std",
+    .cli = "cli",
+    .sti = "sti",
+    .hlt = "hlt",
+    .wait = "wait",
+    .lock = "lock",
+    .segment = "segment",
 });
 
 fn GetInstructionMap(
@@ -358,8 +431,8 @@ pub const instruction_map = GetInstructionMap(
         .pop_reg = &[_]InstFieldInfo{ literal("01011"), REG, Set(.D, 1), Set(.W, 1) },
         .pop_seg = &[_]InstFieldInfo{ literal("000"), SR, literal("111"), Set(.D, 1), Set(.W, 1) },
 
-        .xchg_reg_rm = &[_]InstFieldInfo{ literal("1000011"), W, MOD, REG, RM, Set(.D, 1) },
-        .xch_reg_acc = &[_]InstFieldInfo{ literal("10010"), REG, Set(.MOD, 0b11), Set(.RM, 0b00), Set(.W, 1), Set(.D, 0) },
+        .xchg_reg_rm = &[_]InstFieldInfo{ literal("1000011"), W, MOD, REG, RM, Set(.D, 0) },
+        .xchg_reg_acc = &[_]InstFieldInfo{ literal("10010"), REG, Set(.MOD, 0b11), Set(.RM, 0b00), Set(.W, 1), Set(.D, 0) },
 
         .in_fixed = &[_]InstFieldInfo{ literal("1110010"), W, DATA_LO, Set(.REG, 0b000), Set(.D, 1) },
         .in_var = &[_]InstFieldInfo{ literal("1110110"), W, Set(.REG, 0b000), Set(.MOD, 0b11), Set(.RM, 0b010), Set(.D, 1), Flag(W_FLAG) },
@@ -450,19 +523,58 @@ pub const instruction_map = GetInstructionMap(
 
         .call_dir_seg = &[_]InstFieldInfo{ literal("11101000"), DISP_LO, DISP_HI, Flag(REL_JUMP_FLAG) },
         .call_ind_seg = &[_]InstFieldInfo{ literal("11111111"), MOD, literal("010"), RM, Set(.W, 1) },
-        .call_dir_iseg = &[_]InstFieldInfo{ literal("10011010"), DISP_LO, DISP_HI, DATA_LO, DATA_HI, Set(.W, 1) },
-        .call_ind_iseg = &[_]InstFieldInfo{ literal("11111111"), MOD, literal("011"), RM, Set(.W, 1) },
+        .call_dir_iseg = &[_]InstFieldInfo{ literal("10011010"), DISP_LO, DISP_HI, DATA_LO, DATA_HI, Set(.W, 1), Flag(FAR_FLAG) },
+        .call_ind_iseg = &[_]InstFieldInfo{ literal("11111111"), MOD, literal("011"), RM, Set(.W, 1), Flag(FAR_FLAG) },
 
         .jmp_dir_seg = &[_]InstFieldInfo{ literal("11101001"), DISP_LO, DISP_HI, Flag(REL_JUMP_FLAG) },
         .jmp_dir_seg_short = &[_]InstFieldInfo{ literal("11101011"), DISP_LO, Flag(REL_JUMP_FLAG) },
         .jmp_ind_seg = &[_]InstFieldInfo{ literal("11111111"), MOD, literal("100"), RM, Set(.W, 1) },
-        .jmp_dir_iseg = &[_]InstFieldInfo{ literal("11101010"), DISP_LO, DISP_HI, DATA_LO, DATA_HI, Set(.W, 1) },
-        .jmp_ind_iseg = &[_]InstFieldInfo{ literal("11111111"), MOD, literal("101"), RM, Set(.W, 1) },
+        .jmp_dir_iseg = &[_]InstFieldInfo{ literal("11101010"), DISP_LO, DISP_HI, DATA_LO, DATA_HI, Set(.W, 1), Flag(FAR_FLAG) },
+        .jmp_ind_iseg = &[_]InstFieldInfo{ literal("11111111"), MOD, literal("101"), RM, Set(.W, 1), Flag(FAR_FLAG) },
 
         .ret_seg = &[_]InstFieldInfo{literal("11000011")},
         .ret_seg_sp = &[_]InstFieldInfo{ literal("11000010"), DATA_LO, DATA_HI },
-        .ret_iseg = &[_]InstFieldInfo{literal("11001011")},
-        .ret_iseg_sp = &[_]InstFieldInfo{ literal("11001010"), DATA_LO, DATA_HI },
+        .retf_iseg = &[_]InstFieldInfo{ literal("11001011"), Flag(FAR_FLAG) },
+        .retf_iseg_sp = &[_]InstFieldInfo{ literal("11001010"), DATA_LO, DATA_HI, Flag(FAR_FLAG) },
+
+        .je = &[_]InstFieldInfo{ literal("01110100"), DISP_LO, Flag(REL_JUMP_FLAG) },
+        .jl = &[_]InstFieldInfo{ literal("01111100"), DISP_LO, Flag(REL_JUMP_FLAG) },
+        .jle = &[_]InstFieldInfo{ literal("01111110"), DISP_LO, Flag(REL_JUMP_FLAG) },
+        .jb = &[_]InstFieldInfo{ literal("01110010"), DISP_LO, Flag(REL_JUMP_FLAG) },
+        .jbe = &[_]InstFieldInfo{ literal("01110110"), DISP_LO, Flag(REL_JUMP_FLAG) },
+        .jp = &[_]InstFieldInfo{ literal("01111010"), DISP_LO, Flag(REL_JUMP_FLAG) },
+        .jo = &[_]InstFieldInfo{ literal("01110000"), DISP_LO, Flag(REL_JUMP_FLAG) },
+        .js = &[_]InstFieldInfo{ literal("01111000"), DISP_LO, Flag(REL_JUMP_FLAG) },
+        .jne = &[_]InstFieldInfo{ literal("01110101"), DISP_LO, Flag(REL_JUMP_FLAG) },
+        .jnl = &[_]InstFieldInfo{ literal("01111101"), DISP_LO, Flag(REL_JUMP_FLAG) },
+        .jg = &[_]InstFieldInfo{ literal("01111111"), DISP_LO, Flag(REL_JUMP_FLAG) },
+        .jnb = &[_]InstFieldInfo{ literal("01110011"), DISP_LO, Flag(REL_JUMP_FLAG) },
+        .ja = &[_]InstFieldInfo{ literal("01110111"), DISP_LO, Flag(REL_JUMP_FLAG) },
+        .jnp = &[_]InstFieldInfo{ literal("01111011"), DISP_LO, Flag(REL_JUMP_FLAG) },
+        .jno = &[_]InstFieldInfo{ literal("01110001"), DISP_LO, Flag(REL_JUMP_FLAG) },
+        .jns = &[_]InstFieldInfo{ literal("01111001"), DISP_LO, Flag(REL_JUMP_FLAG) },
+        .loop = &[_]InstFieldInfo{ literal("11100010"), DISP_LO, Flag(REL_JUMP_FLAG) },
+        .loopz = &[_]InstFieldInfo{ literal("11100001"), DISP_LO, Flag(REL_JUMP_FLAG) },
+        .loopnz = &[_]InstFieldInfo{ literal("11100000"), DISP_LO, Flag(REL_JUMP_FLAG) },
+        .jcxz = &[_]InstFieldInfo{ literal("11100011"), DISP_LO, Flag(REL_JUMP_FLAG) },
+
+        .int = &[_]InstFieldInfo{ literal("11001101"), DATA_LO },
+        .int3 = &[_]InstFieldInfo{literal("11001100")},
+        .into = &[_]InstFieldInfo{literal("11001110")},
+        .iret = &[_]InstFieldInfo{literal("11001111")},
+
+        .clc = &[_]InstFieldInfo{literal("11111000")},
+        .cmc = &[_]InstFieldInfo{literal("11110101")},
+        .stc = &[_]InstFieldInfo{literal("11111001")},
+        .cld = &[_]InstFieldInfo{literal("11111100")},
+        .std = &[_]InstFieldInfo{literal("11111101")},
+        .cli = &[_]InstFieldInfo{literal("11111010")},
+        .sti = &[_]InstFieldInfo{literal("11111011")},
+        .hlt = &[_]InstFieldInfo{literal("11110100")},
+        .wait = &[_]InstFieldInfo{literal("10011011")},
+
+        .lock = &[_]InstFieldInfo{literal("11110000")},
+        .segment = &[_]InstFieldInfo{ literal("001"), SR, literal("110") },
     },
 );
 
@@ -484,6 +596,7 @@ pub const Instruction = struct {
     op_code: Operation,
     flags: u8 = 0, // 0000 000W
     bytes: u8 = 0, // number of bytes to read for this op
+    segment_override: u8 = 0,
     operands: [2]Operand = [_]Operand{ .none, .none }, // the first and second operand that this op works on.
 };
 

@@ -13,8 +13,12 @@ const disp_hi_loc = @as(usize, @intFromEnum(InstFieldType.DISP_HI));
 const data_lo_loc: usize = @intFromEnum(InstFieldType.DATA_LO);
 const data_hi_loc = @as(usize, @intFromEnum(InstFieldType.DATA_HI));
 
-pub fn decode_next_instruction(bytecode: []const u8, flags: u8) !Instruction {
-    var instruction: Instruction = Instruction{ .op_code = .mov_rm_reg, .flags = flags };
+pub fn decode_next_instruction(bytecode: []const u8, flags: u8, segment_override: u32) !Instruction {
+    var instruction: Instruction = Instruction{
+        .op_code = .mov_rm_reg,
+        .flags = flags,
+        .segment_override = @truncate(segment_override),
+    };
     var info = std.enums.directEnumArrayDefault(InstFieldType, u32, 0, 0, .{});
     var set = std.enums.directEnumArrayDefault(InstFieldType, bool, false, 0, .{});
 
@@ -114,6 +118,9 @@ pub fn decode_next_instruction(bytecode: []const u8, flags: u8) !Instruction {
     const is_rel_jump: u8 = @as(u8, @truncate(info[flag_as_int])) & REL_JUMP_FLAG;
     instruction.flags |= is_rel_jump;
 
+    const is_far_jump: u8 = @as(u8, @truncate(info[flag_as_int])) & FAR_FLAG;
+    instruction.flags |= is_far_jump;
+
     // check if you need to write something
     var disp_bytes_to_read: u8 = 0;
 
@@ -171,7 +178,13 @@ pub fn decode_next_instruction(bytecode: []const u8, flags: u8) !Instruction {
 
     if (instruction.op_code == .rep) {
         instruction.flags |= @truncate(REP_FLAG);
-        instruction = try decode_next_instruction(bytecode[read_pos..], instruction.flags);
+        instruction = try decode_next_instruction(bytecode[read_pos..], instruction.flags, 0);
+    } else if (instruction.op_code == .lock) {
+        instruction.flags |= @truncate(LOCK_FLAG);
+        instruction = try decode_next_instruction(bytecode[read_pos..], instruction.flags, 0);
+    } else if (instruction.op_code == .segment) {
+        instruction.flags |= @truncate(SEGMENT_OVERRIDE_FLAG);
+        instruction = try decode_next_instruction(bytecode[read_pos..], instruction.flags, instruction.operands[1].register);
     }
 
     instruction.bytes += @truncate(read_pos);
@@ -511,15 +524,15 @@ test "decode_next_instruction with xchg" {
                 .flags = 1,
                 .bytes = 4,
                 .operands = [_]Operand{
-                    .{ .register = 0b1001 },
                     .{ .memory = .{ .ptr = 0b001, .displacement = 257, .is_direct = false } },
+                    .{ .register = 0b1001 },
                 },
             },
         },
         .{
             .input = &[_]u8{0b10010111},
             .output = Instruction{
-                .op_code = .xch_reg_acc,
+                .op_code = .xchg_reg_acc,
                 .flags = 1,
                 .bytes = 1,
                 .operands = [_]Operand{
@@ -1068,7 +1081,7 @@ test "decode_next_instruction with aam" {
 
 fn run_decode_tests(tests: []const TestCase) !void {
     for (tests) |t| {
-        const instruction_out = decode_next_instruction(t.input, 0);
+        const instruction_out = decode_next_instruction(t.input, 0, 0);
         try std.testing.expectEqualDeep(t.output, instruction_out);
     }
 }
@@ -1086,5 +1099,8 @@ const W_FLAG = tables.W_FLAG;
 const Z_FLAG = tables.Z_FLAG;
 const REP_FLAG = tables.REP_FLAG;
 const REL_JUMP_FLAG = tables.REL_JUMP_FLAG;
+const LOCK_FLAG = tables.LOCK_FLAG;
+const SEGMENT_OVERRIDE_FLAG = tables.SEGMENT_OVERRIDE_FLAG;
+const FAR_FLAG = tables.FAR_FLAG;
 const assert = @import("utils").assert;
 const std = @import("std");

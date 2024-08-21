@@ -5,10 +5,14 @@ const utils = @import("utils");
 const assert = utils.assert;
 const Tables = @import("tables.zig");
 const op_to_str_map = Tables.op_to_str_map;
+const Operand = Tables.Operand;
 const REP_FLAG = Tables.REP_FLAG;
 const Z_FLAG = Tables.Z_FLAG;
 const W_FLAG = Tables.W_FLAG;
 const REL_JUMP_FLAG = Tables.REL_JUMP_FLAG;
+const LOCK_FLAG = Tables.LOCK_FLAG;
+const SEGMENT_OVERRIDE_FLAG = Tables.SEGMENT_OVERRIDE_FLAG;
+const FAR_FLAG = Tables.FAR_FLAG;
 const Instruction = Tables.Instruction;
 const Decode = @import("decode.zig");
 
@@ -43,10 +47,22 @@ fn disassemble_bytecode(self: *Disassembler) !void {
     try self.append("bits 16\n\n");
     self.disassembly_ptr = self.disassembly.items.len - 1;
 
+    // self.inst_ptr = 881;
     while (self.inst_ptr < self.bytecode.len) : (try self.append("\n")) {
+        // while (self.inst_ptr < 140) : (try self.append("\n")) {
         // std.debug.print("Decoding: {b}\n", .{self.bytecode[self.inst_ptr .. self.inst_ptr + 3]});
-        const instruction = try Decode.decode_next_instruction(self.bytecode[self.inst_ptr..], 0);
+        var instruction = try Decode.decode_next_instruction(self.bytecode[self.inst_ptr..], 0, 0);
+        // std.debug.print("Instruction: {any}\n", .{instruction});
         self.inst_ptr += instruction.bytes;
+
+        if (instruction.flags & LOCK_FLAG != 0) {
+            if (instruction.op_code == .xchg_reg_acc or instruction.op_code == .xchg_reg_rm) {
+                const temp_op: Operand = instruction.operands[0];
+                instruction.operands[0] = instruction.operands[1];
+                instruction.operands[1] = temp_op;
+            }
+            try self.append("lock ");
+        }
 
         if (instruction.flags & REP_FLAG != 0) {
             const z = instruction.flags & Z_FLAG;
@@ -66,9 +82,7 @@ fn disassemble_bytecode(self: *Disassembler) !void {
 
         try self.appendOperands(instruction);
 
-        // try self.appendOperand(instruction.operands[1], instruction.flags);
-
-        std.debug.print("Bytecode decoded: {b:0>8}\n", .{self.bytecode[self.inst_ptr - instruction.bytes .. self.inst_ptr]});
+        std.debug.print("Bytecode decoded: inst_ptr: {d}, {b:0>8}\n", .{ self.inst_ptr - instruction.bytes, self.bytecode[self.inst_ptr - instruction.bytes .. self.inst_ptr] });
         std.debug.print("Decoded instruction: {s} \n", .{self.disassembly.items[self.disassembly_ptr + 1 ..]});
         self.disassembly_ptr = self.disassembly.items.len;
     }
@@ -99,7 +113,7 @@ fn appendOperands(self: *Disassembler, instruction: Instruction) !void {
                     } else {
                         sign = "+";
                     }
-                    try self.append(try std.fmt.bufPrint(&buffer, "${s}{d}", .{ sign, value + instruction.bytes }));
+                    try self.append(try std.fmt.bufPrint(&buffer, "${s}{d}", .{ sign, @abs(value + instruction.bytes) }));
                 } else {
                     const value: u16 = @bitCast(i);
                     try self.append(try std.fmt.bufPrint(&buffer, "{d}", .{value}));
@@ -113,11 +127,22 @@ fn appendOperands(self: *Disassembler, instruction: Instruction) !void {
                 } else {
                     sign = "+";
                 }
+
+                if (instruction.flags & FAR_FLAG != 0) {
+                    try self.append(try std.fmt.bufPrint(&buffer, "far ", .{}));
+                }
+
                 if (instruction.operands[0] != .register) {
                     const w: usize = @intCast(instruction.flags & 1);
                     const qualifier = [_][]const u8{ "byte ", "word " };
                     try self.append(qualifier[w]);
                 }
+
+                if (instruction.flags & SEGMENT_OVERRIDE_FLAG != 0) {
+                    const sr: Tables.Registers = @enumFromInt(instruction.segment_override);
+                    try self.append(try std.fmt.bufPrint(&buffer, "{s}:", .{@tagName(sr)}));
+                }
+
                 const effective_addr = Tables.EffectiveAddress[m.ptr];
                 if (m.is_direct) {
                     try self.append(try std.fmt.bufPrint(&buffer, "[{d}]", .{displacement}));
@@ -202,7 +227,7 @@ test "pop" {
 test "xchg" {
     const test_cases = [_]test_struct{
         // reg rm
-        .{ .input = &[_]u8{ 0b10000111, 0b10001001, 0b00000001, 0b00000001 }, .output = "bits 16\n\nxchg cx, [bx + di + 257]" },
+        .{ .input = &[_]u8{ 0b10000111, 0b10001001, 0b00000001, 0b00000001 }, .output = "bits 16\n\nxchg word [bx + di + 257], cx" },
         // acc
         .{ .input = &[_]u8{0b10010111}, .output = "bits 16\n\nxchg ax, di" },
     };
