@@ -92,29 +92,75 @@ fn resolve_code(self: *VM, comptime T: type, op_code: Code, dest: ResolvedOp, sr
     }
 
     const dest_ptr: *T = @alignCast(@ptrCast(dest.ptr.?));
-    const src_ptr: *T = @alignCast(@ptrCast(src.ptr.?));
 
     switch (op_code) {
         .mov => {
+            const src_ptr: *T = @alignCast(@ptrCast(src.ptr.?));
             dest_ptr.* = src_ptr.*;
         },
         .add,
-        .cmp,
+        .adc,
+        .inc,
         .sub,
+        .sbb,
+        .dec,
+        .neg,
+        .cmp,
         => {
             var output: struct { T, u1 } = undefined;
             var overflow: bool = false;
+
             switch (op_code) {
                 .add => {
+                    const src_ptr: *T = @alignCast(@ptrCast(src.ptr.?));
                     output = @addWithOverflow(dest_ptr.*, src_ptr.*);
                     const check = (output[0] ^ dest_ptr.*) & (output[0] ^ src_ptr.*) & sign_check_mask;
                     overflow = check != 0;
                 },
+                .adc => {
+                    const src_ptr: *T = @alignCast(@ptrCast(src.ptr.?));
+                    const carry: T = @intFromBool(self.flags & @intFromEnum(.C) != 0);
+                    output = @addWithOverflow(dest_ptr.*, src_ptr.*);
+                    const e = output[1];
+                    output = @addWithOverflow(output[0], carry);
+                    output[1] = @intFromBool(output[1] == 1 or e == 1);
+                    const check = (output[0] ^ dest_ptr.*) & (output[0] ^ src_ptr.*) & sign_check_mask;
+                    overflow = check != 0;
+                },
+                .inc => {
+                    output = @addWithOverflow(dest_ptr.*, 1);
+                    const check = (output[0] ^ dest_ptr.*) & (output[0] ^ 1) & sign_check_mask;
+                    overflow = check != 0;
+                },
                 .sub, .cmp => {
+                    const src_ptr: *T = @alignCast(@ptrCast(src.ptr.?));
                     output = @subWithOverflow(dest_ptr.*, src_ptr.*);
                     const check = (output[0] ^ dest_ptr.*) & (~(output[0] ^ src_ptr.*)) & sign_check_mask;
                     overflow = check != 0;
                 },
+                .sbb => {
+                    const src_ptr: *T = @alignCast(@ptrCast(src.ptr.?));
+                    const carry: T = @intFromBool(self.flags & @intFromEnum(.C) != 0);
+                    output = @subWithOverflow(dest_ptr.*, src_ptr.*);
+                    const e = output[1];
+                    output = @addWithOverflow(dest_ptr.*, carry);
+
+                    output[1] = @intFromBool(output[1] == 1 or e == 1);
+                    const check = (output[0] ^ dest_ptr.*) & (~(output[0] ^ src_ptr.*)) & sign_check_mask;
+                    overflow = check != 0;
+                },
+                .dec => {
+                    output = @subWithOverflow(dest_ptr.*, 1);
+                    const check = (output[0] ^ dest_ptr.*) & (~(output[0] ^ 1)) & sign_check_mask;
+                    overflow = check != 0;
+                },
+                .neg => {
+                    const temp = ~dest_ptr.*;
+                    output = @addWithOverflow(temp, 1);
+                    const check = (output[0] ^ dest_ptr.*) & sign_check_mask;
+                    overflow = check != 0;
+                },
+
                 else => unreachable,
             }
 
@@ -128,10 +174,12 @@ fn resolve_code(self: *VM, comptime T: type, op_code: Code, dest: ResolvedOp, sr
                 self.unset_flag(.O);
             }
 
-            if (output[1] == 1) {
-                self.set_flag(.C);
-            } else {
-                self.unset_flag(.C);
+            if (op_code != .inc and op_code != .dec) {
+                if (output[1] == 1) {
+                    self.set_flag(.C);
+                } else {
+                    self.unset_flag(.C);
+                }
             }
 
             if (output[0] == 0) {

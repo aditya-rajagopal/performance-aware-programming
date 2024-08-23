@@ -253,7 +253,12 @@ pub const Code = enum {
     unknown,
     mov,
     add,
+    adc,
+    inc,
     sub,
+    sbb,
+    dec,
+    neg,
     cmp,
 };
 
@@ -270,9 +275,20 @@ pub const op_to_code = std.enums.directEnumArrayDefault(Operation, Code, .unknow
     .sub_reg_rm = .sub,
     .sub_im_rm = .sub,
     .sub_im_acc = .sub,
+    .sbb_reg_rm = .sbb,
+    .sbb_im_rm = .sbb,
+    .sbb_im_acc = .sbb,
+    .dec_rm = .dec,
+    .dec_reg = .dec,
+    .neg = .neg,
     .cmp_rm_reg = .cmp,
     .cmp_im_rm = .cmp,
     .cmp_im_acc = .cmp,
+    .adc_reg_rm = .adc,
+    .adc_im_rm = .adc,
+    .adc_im_acc = .adc,
+    .inc_rm = .inc,
+    .inc_reg = .inc,
 });
 
 pub const op_to_str_map = std.enums.directEnumArrayDefault(Operation, []const u8, null, 256, .{
