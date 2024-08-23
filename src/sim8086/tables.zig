@@ -63,6 +63,7 @@ pub const InstFieldInfo = struct { // 4bytes
 
 fn literal(comptime op_literal: []const u8) InstFieldInfo {
     @setEvalBranchQuota(200000);
+    comptime assert(op_literal.len <= 8, "Literal string exceeds 8 bits\n", .{});
     const value = std.fmt.parseInt(u8, op_literal, 2) catch unreachable;
     return .{
         .inst_type = .LITERAL,
@@ -247,6 +248,20 @@ pub const Operation = enum(u8) {
     lock,
     segment,
 };
+
+pub const Code = enum {
+    unknown,
+    mov,
+};
+
+pub const op_to_code = std.enums.directEnumArrayDefault(Operation, Code, .unknown, 256, .{
+    .mov_rm_reg = .mov,
+    .mov_im_rm = .mov,
+    .mov_im_reg = .mov,
+    .mov_mem_acc = .mov,
+    .mov_acc_mem = .mov,
+    .mov_rm_sr = .mov,
+});
 
 pub const op_to_str_map = std.enums.directEnumArrayDefault(Operation, []const u8, null, 256, .{
     .mov_rm_reg = "mov",

@@ -32,6 +32,8 @@ pub fn main() !void {
     var output: []const u8 = undefined;
     defer allocator.free(output);
 
+    // std.debug.print("config: {any}\n", .{config});
+
     if (config.disassemble) |d_file| {
         const file = try std.fs.cwd().openFile(d_file, .{});
         defer file.close();
@@ -40,6 +42,14 @@ pub fn main() !void {
         utils.print_bytecode(buffer[0..data]);
         output = try sim8086.disassemble(buffer[0..data], allocator);
         try outw.print("{s}\n", .{output});
+    } else if (config.simulate) |s_file| {
+        const file = try std.fs.cwd().openFile(s_file, .{});
+        defer file.close();
+        var buffer: [10240]u8 = undefined;
+        const data = try file.reader().readAll(&buffer);
+        utils.print_bytecode(buffer[0..data]);
+        try sim8086.simulate(buffer[0..data], allocator);
+        output = try allocator.dupe(u8, buffer[0..data]);
     } else {
         std.log.err("{s}", .{usage_str});
         std.log.err("Invalid usage: -d, --disassembly [path] must be provided", .{});

@@ -16,85 +16,63 @@ const FAR_FLAG = Tables.FAR_FLAG;
 const Instruction = Tables.Instruction;
 const Decode = @import("decode.zig");
 
-pub const Disassembler = @This();
-
-bytecode: []const u8,
-disassembly: std.ArrayList(u8),
-
-inst_ptr: usize = 0,
-disassembly_ptr: usize = 0,
-
-pub fn init(bytecode: []const u8, allocator: Allocator) Disassembler {
-    return .{
-        .bytecode = bytecode,
-        .disassembly = std.ArrayList(u8).init(allocator),
-    };
-}
-
-pub fn append(self: *Disassembler, slice: []const u8) !void {
-    try self.disassembly.appendSlice(slice);
-}
-
 pub fn disassemble(bytecode: []const u8, allocator: Allocator) ![]const u8 {
-    var disassembler = Disassembler.init(bytecode, allocator);
+    var disassembly = try std.ArrayList(u8).initCapacity(allocator, bytecode.len * 8);
 
-    try disassembler.disassemble_bytecode();
+    try disassemble_bytecode(bytecode, &disassembly);
 
-    return disassembler.disassembly.toOwnedSlice();
+    return disassembly.toOwnedSlice();
 }
 
-fn disassemble_bytecode(self: *Disassembler) !void {
-    try self.append("bits 16\n\n");
-    self.disassembly_ptr = self.disassembly.items.len - 1;
+fn disassemble_bytecode(bytecode: []const u8, disassembly: *std.ArrayList(u8)) !void {
+    try disassembly.appendSlice("bits 16\n\n");
 
-    // self.inst_ptr = 881;
-    while (self.inst_ptr < self.bytecode.len) : (try self.append("\n")) {
-        // while (self.inst_ptr < 140) : (try self.append("\n")) {
-        // std.debug.print("Decoding: {b}\n", .{self.bytecode[self.inst_ptr .. self.inst_ptr + 3]});
-        var instruction = try Decode.decode_next_instruction(self.bytecode[self.inst_ptr..], 0, 0);
-        // std.debug.print("Instruction: {any}\n", .{instruction});
-        self.inst_ptr += instruction.bytes;
+    var inst_ptr: usize = 0;
 
-        if (instruction.flags & LOCK_FLAG != 0) {
-            if (instruction.op_code == .xchg_reg_acc or instruction.op_code == .xchg_reg_rm) {
-                const temp_op: Operand = instruction.operands[0];
-                instruction.operands[0] = instruction.operands[1];
-                instruction.operands[1] = temp_op;
-            }
-            try self.append("lock ");
-        }
-
-        if (instruction.flags & REP_FLAG != 0) {
-            const z = instruction.flags & Z_FLAG;
-            try self.append(if (z != 0) "rep " else "repne ");
-        }
-
-        try self.append(op_to_str_map[@as(usize, @intFromEnum(instruction.op_code))]);
-
-        if (instruction.flags & REP_FLAG != 0) {
-            const w = instruction.flags & W_FLAG;
-            try self.append(if (w == 1) "w" else "b");
-        }
-
-        if (instruction.operands[0] != .none or instruction.operands[1] != .none) {
-            try self.append(" ");
-        }
-
-        try self.appendOperands(instruction);
-
-        // std.debug.print("Bytecode decoded: inst_ptr: {d}, {b:0>8}\n", .{ self.inst_ptr - instruction.bytes, self.bytecode[self.inst_ptr - instruction.bytes .. self.inst_ptr] });
-        // std.debug.print("Decoded instruction: {s} \n", .{self.disassembly.items[self.disassembly_ptr + 1 ..]});
-        self.disassembly_ptr = self.disassembly.items.len;
+    var instruction: Instruction = undefined;
+    while (inst_ptr < bytecode.len) : (try disassembly.append('\n')) {
+        instruction = try Decode.decode_next_instruction(bytecode[inst_ptr..], 0, 0);
+        inst_ptr += instruction.bytes;
+        try instruction_to_string(&instruction, disassembly);
     }
-    _ = self.disassembly.pop(); // remove the last \n
+    _ = disassembly.pop(); // remove the last \n
 }
 
-fn appendOperands(self: *Disassembler, instruction: Instruction) !void {
+pub fn instruction_to_string(instruction: *Instruction, disassembly: *std.ArrayList(u8)) !void {
+    if (instruction.flags & LOCK_FLAG != 0) {
+        if (instruction.op_code == .xchg_reg_acc or instruction.op_code == .xchg_reg_rm) {
+            const temp_op: Operand = instruction.operands[0];
+            instruction.operands[0] = instruction.operands[1];
+            instruction.operands[1] = temp_op;
+        }
+        try disassembly.appendSlice("lock ");
+    }
+
+    if (instruction.flags & REP_FLAG != 0) {
+        const z = instruction.flags & Z_FLAG;
+        try disassembly.appendSlice(if (z != 0) "rep " else "repne ");
+    }
+
+    try disassembly.appendSlice(op_to_str_map[@as(usize, @intFromEnum(instruction.op_code))]);
+
+    if (instruction.flags & REP_FLAG != 0) {
+        const w = instruction.flags & W_FLAG;
+        try disassembly.appendSlice(if (w == 1) "w" else "b");
+    }
+
+    if (instruction.operands[0] != .none or instruction.operands[1] != .none) {
+        try disassembly.appendSlice(" ");
+    }
+
+    try appendOperands(instruction, disassembly);
+}
+
+fn appendOperands(instruction: *Instruction, disassembly: *std.ArrayList(u8)) !void {
     var buffer: [1024]u8 = undefined;
 
     var seperator: []const u8 = "";
     for (instruction.operands) |operand| {
-        try self.append(seperator);
+        try disassembly.appendSlice(seperator);
         if (instruction.operands[1] != .none and instruction.operands[0] != .none) {
             seperator = ", ";
         }
@@ -102,7 +80,7 @@ fn appendOperands(self: *Disassembler, instruction: Instruction) !void {
         switch (operand) {
             .register => |r| {
                 const register: Tables.Registers = @enumFromInt(r);
-                try self.append(@tagName(register));
+                try disassembly.appendSlice(@tagName(register));
             },
             .immediate => |i| {
                 if (instruction.flags & REL_JUMP_FLAG != 0) {
@@ -113,10 +91,10 @@ fn appendOperands(self: *Disassembler, instruction: Instruction) !void {
                     } else {
                         sign = "+";
                     }
-                    try self.append(try std.fmt.bufPrint(&buffer, "${s}{d}", .{ sign, @abs(value + instruction.bytes) }));
+                    try disassembly.appendSlice(try std.fmt.bufPrint(&buffer, "${s}{d}", .{ sign, @abs(value + instruction.bytes) }));
                 } else {
                     const value: u16 = @bitCast(i);
-                    try self.append(try std.fmt.bufPrint(&buffer, "{d}", .{value}));
+                    try disassembly.appendSlice(try std.fmt.bufPrint(&buffer, "{d}", .{value}));
                 }
             },
             .memory => |m| {
@@ -129,31 +107,31 @@ fn appendOperands(self: *Disassembler, instruction: Instruction) !void {
                 }
 
                 if (instruction.flags & FAR_FLAG != 0) {
-                    try self.append(try std.fmt.bufPrint(&buffer, "far ", .{}));
+                    try disassembly.appendSlice(try std.fmt.bufPrint(&buffer, "far ", .{}));
                 }
 
                 if (instruction.operands[0] != .register) {
                     const w: usize = @intCast(instruction.flags & 1);
                     const qualifier = [_][]const u8{ "byte ", "word " };
-                    try self.append(qualifier[w]);
+                    try disassembly.appendSlice(qualifier[w]);
                 }
 
                 if (instruction.flags & SEGMENT_OVERRIDE_FLAG != 0) {
                     const sr: Tables.Registers = @enumFromInt(instruction.segment_override);
-                    try self.append(try std.fmt.bufPrint(&buffer, "{s}:", .{@tagName(sr)}));
+                    try disassembly.appendSlice(try std.fmt.bufPrint(&buffer, "{s}:", .{@tagName(sr)}));
                 }
 
                 const effective_addr = Tables.EffectiveAddress[m.ptr];
                 if (m.is_direct) {
-                    try self.append(try std.fmt.bufPrint(&buffer, "[{d}]", .{displacement}));
+                    try disassembly.appendSlice(try std.fmt.bufPrint(&buffer, "[{d}]", .{displacement}));
                 } else if (displacement == 0) {
-                    try self.append(try std.fmt.bufPrint(&buffer, "[{s}]", .{effective_addr}));
+                    try disassembly.appendSlice(try std.fmt.bufPrint(&buffer, "[{s}]", .{effective_addr}));
                 } else {
-                    try self.append(try std.fmt.bufPrint(&buffer, "[{s} {s} {d}]", .{ effective_addr, sign, @abs(displacement) }));
+                    try disassembly.appendSlice(try std.fmt.bufPrint(&buffer, "[{s} {s} {d}]", .{ effective_addr, sign, @abs(displacement) }));
                 }
             },
             .explicit_segment => |s| {
-                try self.append(try std.fmt.bufPrint(&buffer, "{d}:{d}", .{ s.segment, s.displacement }));
+                try disassembly.appendSlice(try std.fmt.bufPrint(&buffer, "{d}:{d}", .{ s.segment, s.displacement }));
             },
             .none => continue,
         }

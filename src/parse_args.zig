@@ -7,10 +7,13 @@ const options = [_][]const u8{
     "--help",
     "-o",
     "--output",
+    "-s",
+    "--sim",
 };
 
 pub const Config = struct {
     disassemble: ?[]const u8 = null,
+    simulate: ?[]const u8 = null,
     output: ?[]const u8 = null,
     enable_output: bool = false,
     help: bool = false,
@@ -19,6 +22,9 @@ pub const Config = struct {
     pub fn deinit(self: *Config, allocator: std.mem.Allocator) void {
         if (self.disassemble) |d| {
             allocator.free(d);
+        }
+        if (self.simulate) |s| {
+            allocator.free(s);
         }
         if (self.output) |o| {
             allocator.free(o);
@@ -33,7 +39,10 @@ pub const usage =
     \\
     \\      -h, --help                  print usage
     \\      -d, --disassemble <path>    file you want to disassemble
-    \\      -o, --output <?path>        location to store the disassembled result
+    \\      -s, --sim <path>            Takes a binary file and simulates an Intel 8086 running the provided bytecode
+    \\                                  stream. Outputs the change in register states as the instructions are processed
+    \\                                  and then the final register states.
+    \\      -o, --output <?path>        location to store the disassembled result or the output of the simulator
     \\                                  or empty path to store it in the same location with a prefix sim8086
 ;
 
@@ -44,9 +53,10 @@ pub fn parseArgs(allocator: std.mem.Allocator) !Config {
     _ = args.next().?;
     // std.debug.print("zig: {s}\n", .{zig});
 
-    var config: Config = undefined;
+    var config: Config = .{};
     config.disassemble = null;
     config.output = null;
+    config.simulate = null;
 
     var temp_arg = args.next();
     var arg: []const u8 = undefined;
@@ -61,6 +71,7 @@ pub fn parseArgs(allocator: std.mem.Allocator) !Config {
     }
 
     outter: while (true) {
+        std.debug.print("Current argument: {s}, {any}\n", .{ arg, std.mem.eql(u8, arg, "-s") });
         if (std.mem.eql(u8, arg, "-h") or std.mem.eql(u8, arg, "--help")) {
             config.help = true;
             break;
@@ -80,6 +91,27 @@ pub fn parseArgs(allocator: std.mem.Allocator) !Config {
             } else {
                 std.log.err("{s}", .{usage});
                 std.log.err("-b must have a path following it", .{});
+                config.is_error = true;
+                break;
+            }
+        }
+        if ((std.mem.eql(u8, arg, "-s") or std.mem.eql(u8, arg, "--sim")) and config.simulate == null) {
+            std.debug.print("Found command s\n", .{});
+            temp_arg = args.next();
+            if (temp_arg) |f| {
+                for (options) |o| {
+                    if (std.mem.eql(u8, o, f)) {
+                        std.log.err("{s}", .{usage});
+                        std.log.err("--sim/-s must have a path following it: found {s}", .{f});
+                        config.is_error = true;
+                        break :outter;
+                    }
+                }
+                config.simulate = try allocator.dupe(u8, f);
+                std.debug.print("Just created simulate: {s}\n", .{config.simulate.?});
+            } else {
+                std.log.err("{s}", .{usage});
+                std.log.err("-s/--sim must have a path following it", .{});
                 config.is_error = true;
                 break;
             }
