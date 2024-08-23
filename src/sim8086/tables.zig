@@ -252,6 +252,9 @@ pub const Operation = enum(u8) {
 pub const Code = enum {
     unknown,
     mov,
+    add,
+    sub,
+    cmp,
 };
 
 pub const op_to_code = std.enums.directEnumArrayDefault(Operation, Code, .unknown, 256, .{
@@ -261,6 +264,15 @@ pub const op_to_code = std.enums.directEnumArrayDefault(Operation, Code, .unknow
     .mov_mem_acc = .mov,
     .mov_acc_mem = .mov,
     .mov_rm_sr = .mov,
+    .add_reg_rm = .add,
+    .add_im_rm = .add,
+    .add_im_acc = .add,
+    .sub_reg_rm = .sub,
+    .sub_im_rm = .sub,
+    .sub_im_acc = .sub,
+    .cmp_rm_reg = .cmp,
+    .cmp_im_rm = .cmp,
+    .cmp_im_acc = .cmp,
 });
 
 pub const op_to_str_map = std.enums.directEnumArrayDefault(Operation, []const u8, null, 256, .{

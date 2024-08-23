@@ -48,8 +48,8 @@ pub fn main() !void {
         var buffer: [10240]u8 = undefined;
         const data = try file.reader().readAll(&buffer);
         utils.print_bytecode(buffer[0..data]);
-        try sim8086.simulate(buffer[0..data], allocator);
-        output = try allocator.dupe(u8, buffer[0..data]);
+        output = try sim8086.simulate(buffer[0..data], allocator);
+        try outw.print("{s}\n", .{output});
     } else {
         std.log.err("{s}", .{usage_str});
         std.log.err("Invalid usage: -d, --disassembly [path] must be provided", .{});
