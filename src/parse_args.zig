@@ -71,7 +71,6 @@ pub fn parseArgs(allocator: std.mem.Allocator) !Config {
     }
 
     outter: while (true) {
-        std.debug.print("Current argument: {s}, {any}\n", .{ arg, std.mem.eql(u8, arg, "-s") });
         if (std.mem.eql(u8, arg, "-h") or std.mem.eql(u8, arg, "--help")) {
             config.help = true;
             break;
@@ -96,7 +95,6 @@ pub fn parseArgs(allocator: std.mem.Allocator) !Config {
             }
         }
         if ((std.mem.eql(u8, arg, "-s") or std.mem.eql(u8, arg, "--sim")) and config.simulate == null) {
-            std.debug.print("Found command s\n", .{});
             temp_arg = args.next();
             if (temp_arg) |f| {
                 for (options) |o| {
@@ -108,7 +106,6 @@ pub fn parseArgs(allocator: std.mem.Allocator) !Config {
                     }
                 }
                 config.simulate = try allocator.dupe(u8, f);
-                std.debug.print("Just created simulate: {s}\n", .{config.simulate.?});
             } else {
                 std.log.err("{s}", .{usage});
                 std.log.err("-s/--sim must have a path following it", .{});

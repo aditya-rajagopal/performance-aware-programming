@@ -1,8 +1,10 @@
 pub const VM = @This();
 
-registers: [24]u8 = .{0} ** 24,
-immediate_store: [2]u8 = .{0} ** 2,
-memory: [65536]u8 = .{0} ** 65536,
+// align(2) here so that we can address them as u16 and if we
+// try to access odd indicies it will throw an error
+registers: [24]u8 align(2) = .{0} ** 24,
+immediate_store: [2]u8 align(2) = .{0} ** 2,
+memory: [65535]u8 align(2) = .{0} ** 65535,
 
 const ResolvedOp = struct {
     ptr: ?*u8,
@@ -100,6 +102,7 @@ fn add_vm_state(self: *VM, vm_out: *std.ArrayList(u8)) !void {
 
 test "random" {
     std.debug.print("Size of VM: {d}\n", .{@sizeOf(VM)});
+    std.debug.print("Size of VM: {d}\n", .{@alignOf(VM)});
 }
 
 const std = @import("std");
