@@ -43,12 +43,19 @@ pub fn main() !void {
         output = try sim8086.disassemble(buffer[0..data], allocator);
         try outw.print("{s}\n", .{output});
     } else if (config.simulate) |s_file| {
+        var start = try std.time.Timer.start();
         const file = try std.fs.cwd().openFile(s_file, .{});
         defer file.close();
         var buffer: [10240]u8 = undefined;
         const data = try file.reader().readAll(&buffer);
-        utils.print_bytecode(buffer[0..data]);
+        // utils.print_bytecode(buffer[0..data]);
+        const file_read = start.lap();
         output = try sim8086.simulate(buffer[0..data], allocator);
+        const simulation_time = start.read();
+        std.debug.print("Time to run simulation: {s}, file_read: {s}\n", .{
+            std.fmt.fmtDuration(simulation_time),
+            std.fmt.fmtDuration(file_read),
+        });
         try outw.print("{s}\n", .{output});
     } else {
         std.log.err("{s}", .{usage_str});
