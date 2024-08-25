@@ -121,7 +121,7 @@ fn appendOperands(instruction: *Instruction, disassembly: *std.ArrayList(u8)) !v
                     try disassembly.appendSlice(try std.fmt.bufPrint(&buffer, "{s}:", .{@tagName(sr)}));
                 }
 
-                const effective_addr = Tables.EffectiveAddress[m.ptr];
+                const effective_addr = Tables.EffectiveAddressStr[m.ptr];
                 if (m.is_direct) {
                     try disassembly.appendSlice(try std.fmt.bufPrint(&buffer, "[{d}]", .{displacement}));
                 } else if (displacement == 0) {

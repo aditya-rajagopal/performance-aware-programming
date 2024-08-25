@@ -811,7 +811,7 @@ pub const Instruction = struct {
 
 /// to index into this you can index into this array using the R/M field
 /// index 7 is special when RM is 00 so keep that in mind
-pub const EffectiveAddress = [_][]const u8{
+pub const EffectiveAddressStr = [_][]const u8{
     "bx + si", // 000
     "bx + di", // 001
     "bp + si", // 010
@@ -820,6 +820,17 @@ pub const EffectiveAddress = [_][]const u8{
     "di", // 101
     "bp", // 110
     "bx", // 111
+};
+
+pub const effective_address_map = [_][]const Registers{
+    &[_]Registers{ .bx, .si },
+    &[_]Registers{ .bx, .di },
+    &[_]Registers{ .bp, .si },
+    &[_]Registers{ .bp, .di },
+    &[_]Registers{.si},
+    &[_]Registers{.di},
+    &[_]Registers{.bp},
+    &[_]Registers{.bx},
 };
 
 const std = @import("std");

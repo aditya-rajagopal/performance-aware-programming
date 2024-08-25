@@ -11,7 +11,8 @@ registers: [24]u8 align(2) = .{0} ** 24,
 ip_register: u16 = 0,
 immediate_store: [2]u8 align(2) = .{0} ** 2,
 
-memory: [65535]u8 align(2) = .{0} ** 65535,
+memory: [1024 * 1024]u8 align(2) = .{0} ** (1024 * 1024),
+max_memory_accessed: usize = 0,
 
 const ResolvedOp = struct {
     ptr: *u8,
@@ -19,62 +20,96 @@ const ResolvedOp = struct {
     reg_name: ?[]const u8 = null,
 };
 
-pub fn simulate(bytecode: []const u8, allocator: Allocator) ![]const u8 {
-    var vm = VM{};
+var vm = VM{};
 
-    var vm_out = try std.ArrayList(u8).initCapacity(allocator, bytecode.len * 20);
+pub fn simulate(
+    bytecode: []const u8,
+    allocator: Allocator,
+    config: struct {
+        verbose: bool = false,
+        mem_dump: bool = false,
+    },
+) ![]const u8 {
+    vm.ip_register = 0;
+    @memcpy(vm.memory[0..bytecode.len], bytecode);
+    const ip_boundry = bytecode.len;
+    var vm_out: std.ArrayList(u8) = undefined;
+    if (config.verbose) {
+        vm_out = try std.ArrayList(u8).initCapacity(allocator, bytecode.len * 20);
+    } else {
+        vm_out = std.ArrayList(u8).init(allocator);
+    }
     defer vm_out.deinit();
     var buffer: [1024]u8 = undefined;
 
-    vm.ip_register = 0;
     var instruction: Instruction = undefined;
-    while (vm.ip_register < bytecode.len) : (try vm_out.append('\n')) {
-        instruction = try Decode.decode_next_instruction(bytecode[vm.ip_register..], 0, 0);
+    while (vm.ip_register < ip_boundry) {
+        instruction = try Decode.decode_next_instruction(vm.memory[vm.ip_register..], 0, 0);
         const initial_ip: u16 = vm.ip_register;
 
         vm.ip_register += instruction.bytes;
 
-        try instruction_to_string(&instruction, &vm_out);
+        if (config.verbose) {
+            try instruction_to_string(&instruction, &vm_out);
+            try vm_out.appendSlice(" ; ");
+        }
 
-        try vm_out.appendSlice(" ; ");
+        try vm.execute(instruction, &vm_out, config.verbose);
 
-        try vm.execute(instruction, &vm_out);
-        try vm_out.appendSlice(try std.fmt.bufPrint(&buffer, " ip: 0x{x:0>4}->0x{x:0>4}", .{ initial_ip, vm.ip_register }));
+        if (config.verbose) {
+            try vm_out.appendSlice(try std.fmt.bufPrint(&buffer, " ip: 0x{x:0>4}->0x{x:0>4}", .{ initial_ip, vm.ip_register }));
+            try vm_out.append('\n');
+        }
     }
 
-    try vm.add_vm_state(&vm_out);
+    if (config.mem_dump) {
+        try vm_out.appendSlice(vm.memory[0..vm.max_memory_accessed]);
+    } else {
+        try vm.add_vm_state(&vm_out);
+    }
+
     return vm_out.toOwnedSlice();
 }
 
-fn execute(self: *VM, instruction: Instruction, vm_out: *std.ArrayList(u8)) !void {
+fn execute(self: *VM, instruction: Instruction, vm_out: *std.ArrayList(u8), verbose: bool) !void {
     const op_code = op_to_code[@intFromEnum(instruction.op_code)];
     const w = instruction.flags & W_FLAG != 0;
 
-    const destination: ResolvedOp = self.resolve_operand(instruction.operands[0], instruction.flags);
-    const source: ResolvedOp = self.resolve_operand(instruction.operands[1], instruction.flags);
+    const destination: ResolvedOp = self.resolve_operand(0, instruction);
+    const source: ResolvedOp = self.resolve_operand(1, instruction);
 
     var buffer: [1024]u8 = undefined;
 
-    const dest: *u16 = @ptrFromInt(@intFromPtr(destination.ptr) - destination.offset);
+    var initial_value: u16 = 0;
+    var dest: *u16 = undefined;
 
-    const initial_value: u16 = dest.*;
+    if (destination.reg_name) |_| {
+        dest = @ptrFromInt(@intFromPtr(destination.ptr) - destination.offset);
+        initial_value = dest.*;
+    }
+
     const initial_flags: u16 = self.flags;
     if (w) {
         self.resolve_code(u16, op_code, destination, source);
     } else {
         self.resolve_code(u8, op_code, destination, source);
     }
-    const final_value = dest.*;
-    const final_flags: u16 = self.flags;
 
-    if (final_value != initial_value) {
-        try vm_out.appendSlice(try std.fmt.bufPrint(&buffer, "{s}: ", .{destination.reg_name.?}));
-        try vm_out.appendSlice(try std.fmt.bufPrint(&buffer, "0x{x:0>4}->", .{initial_value}));
-        try vm_out.appendSlice(try std.fmt.bufPrint(&buffer, "0x{x:0>4}", .{final_value}));
-    }
+    if (verbose) {
+        if (destination.reg_name) |name| {
+            const final_value = dest.*;
 
-    if (initial_flags != final_flags) {
-        try print_flag_diff(initial_flags, final_flags, vm_out);
+            if (final_value != initial_value) {
+                try vm_out.appendSlice(try std.fmt.bufPrint(&buffer, "{s}: ", .{name}));
+                try vm_out.appendSlice(try std.fmt.bufPrint(&buffer, "0x{x:0>4}->", .{initial_value}));
+                try vm_out.appendSlice(try std.fmt.bufPrint(&buffer, "0x{x:0>4}", .{final_value}));
+            }
+        }
+
+        const final_flags: u16 = self.flags;
+        if (initial_flags != final_flags) {
+            try print_flag_diff(initial_flags, final_flags, vm_out);
+        }
     }
 }
 
@@ -187,7 +222,7 @@ fn resolve_code(self: *VM, comptime T: type, op_code: Code, dest: ResolvedOp, sr
         .jcxz => {
             if (T == u8) {
                 const displacement: i8 = @bitCast(dest_ptr.*);
-                const CX: *u16 = @alignCast(@ptrCast(&self.registers[(@intFromEnum(Register.cx) - 8) * 2]));
+                const CX: *u16 = @alignCast(@ptrCast(&self.registers[(@intFromEnum(Registers.cx) - 8) * 2]));
                 if (CX.* == 0) {
                     self.ip_register = @intCast(@as(i32, @intCast(self.ip_register)) + displacement);
                 }
@@ -278,7 +313,7 @@ fn resolve_code(self: *VM, comptime T: type, op_code: Code, dest: ResolvedOp, sr
         .loop => {
             if (T == u8) {
                 const displacement: i8 = @bitCast(dest_ptr.*);
-                const CX: *u16 = @alignCast(@ptrCast(&self.registers[(@intFromEnum(Register.cx) - 8) * 2]));
+                const CX: *u16 = @alignCast(@ptrCast(&self.registers[(@intFromEnum(Registers.cx) - 8) * 2]));
                 CX.* -= 1;
                 if (CX.* != 0) {
                     self.ip_register = @intCast(@as(i32, @intCast(self.ip_register)) + displacement);
@@ -289,7 +324,7 @@ fn resolve_code(self: *VM, comptime T: type, op_code: Code, dest: ResolvedOp, sr
         .loopz => {
             if (T == u8) {
                 const displacement: i8 = @bitCast(dest_ptr.*);
-                const CX: *u16 = @alignCast(@ptrCast(&self.registers[(@intFromEnum(Register.cx) - 8) * 2]));
+                const CX: *u16 = @alignCast(@ptrCast(&self.registers[(@intFromEnum(Registers.cx) - 8) * 2]));
                 const ZF = self.flags & @intFromEnum(Flags.Z);
                 CX.* -= 1;
                 if (CX.* != 0 and ZF != 0) {
@@ -301,7 +336,7 @@ fn resolve_code(self: *VM, comptime T: type, op_code: Code, dest: ResolvedOp, sr
         .loopnz => {
             if (T == u8) {
                 const displacement: i8 = @bitCast(dest_ptr.*);
-                const CX: *u16 = @alignCast(@ptrCast(&self.registers[(@intFromEnum(Register.cx) - 8) * 2]));
+                const CX: *u16 = @alignCast(@ptrCast(&self.registers[(@intFromEnum(Registers.cx) - 8) * 2]));
                 const ZF = self.flags & @intFromEnum(Flags.Z);
                 CX.* -= 1;
                 if (CX.* != 0 and ZF == 0) {
@@ -421,23 +456,23 @@ fn resolve_code(self: *VM, comptime T: type, op_code: Code, dest: ResolvedOp, sr
     }
 }
 
-fn resolve_operand(self: *VM, operand: Operand, flags: u16) ResolvedOp {
-    switch (operand) {
+fn resolve_operand(self: *VM, index: usize, instruction: Instruction) ResolvedOp {
+    switch (instruction.operands[index]) {
         .none => return .{ .ptr = &self.null_memory },
         .register => |r| {
             if (r < 8) {
                 const pos = r / 4;
                 const reg_index = (r % 4);
-                const reg: Register = @enumFromInt(reg_index + 8);
+                const reg: Registers = @enumFromInt(reg_index + 8);
                 return .{ .ptr = &self.registers[reg_index * 2 + pos], .reg_name = @tagName(reg), .offset = pos };
             } else {
                 const reg_index: usize = r - 8;
-                const reg: Register = @enumFromInt(r);
+                const reg: Registers = @enumFromInt(r);
                 return .{ .ptr = &self.registers[reg_index * 2], .reg_name = @tagName(reg) };
             }
         },
         .immediate => |i| {
-            if (flags & REL_JUMP_FLAG != 0) {
+            if (instruction.flags & REL_JUMP_FLAG != 0) {
                 const imm_ptr: *i16 = @alignCast(@ptrCast(&self.immediate_store));
                 imm_ptr.* = @bitCast(i);
                 return .{ .ptr = &self.immediate_store[0] };
@@ -447,8 +482,39 @@ fn resolve_operand(self: *VM, operand: Operand, flags: u16) ResolvedOp {
                 return .{ .ptr = &self.immediate_store[0] };
             }
         },
-        .memory => unreachable,
-        .explicit_segment => unreachable,
+        .memory => |m| {
+            const displacement = m.displacement;
+            var sr: Registers = .ds;
+            if (instruction.flags & SEGMENT_OVERRIDE_FLAG != 0) {
+                sr = @enumFromInt(instruction.segment_override);
+            }
+            const sr_pos: usize = @intFromEnum(sr) - 8;
+            const sr_value: *u16 = @alignCast(@ptrCast(&self.registers[sr_pos * 2]));
+            var memory: u16 = 0;
+
+            if (m.is_direct) {
+                assert(displacement >= 0, "Negative displacement", .{});
+                memory = @bitCast(displacement);
+            } else {
+                const effective_address = effective_address_map[m.ptr];
+                memory = @as(*u16, @alignCast(@ptrCast(&self.registers[(@intFromEnum(effective_address[0]) - 8) * 2]))).*;
+                if (effective_address.len > 1) {
+                    memory += @as(*u16, @alignCast(@ptrCast(&self.registers[(@intFromEnum(effective_address[1]) - 8) * 2]))).*;
+                }
+                memory = @intCast(@as(i32, @intCast(memory)) + displacement);
+            }
+
+            var ptr: usize = sr_value.* << 4;
+            ptr += memory;
+            self.max_memory_accessed = @max(self.max_memory_accessed, ptr);
+            return .{ .ptr = &self.memory[ptr] };
+        },
+        .explicit_segment => |e| {
+            const displacement: u16 = @as(*u16, @alignCast(@ptrCast(&self.registers[(e.segment - 8) * 2]))).*;
+            const ptr: usize = @intCast(@as(i32, @intCast(displacement)) + e.displacement);
+            self.max_memory_accessed = @max(self.max_memory_accessed, ptr);
+            return .{ .ptr = &self.memory[ptr] };
+        },
     }
 }
 
@@ -472,7 +538,7 @@ fn add_vm_state(self: *VM, vm_out: *std.ArrayList(u8)) !void {
     var buffer: [1024]u8 = undefined;
     var i: usize = 0;
     while (i < self.registers.len) : (i += 2) {
-        const reg_type: Register = @enumFromInt(i / 2 + 8);
+        const reg_type: Registers = @enumFromInt(i / 2 + 8);
         const reg: u16 = @as(*u16, @alignCast(@ptrCast(&self.registers[i]))).*;
         if (reg != 0) {
             try vm_out.appendSlice(try std.fmt.bufPrint(&buffer, "\t{s}: 0x{x:0>4} ({d})\n", .{ @tagName(reg_type), reg, reg }));
@@ -483,6 +549,10 @@ fn add_vm_state(self: *VM, vm_out: *std.ArrayList(u8)) !void {
     try flag_to_str(self.flags, vm_out);
 }
 
+test VM {
+    std.debug.print("Size of VM: {d}\n", .{@sizeOf(VM)});
+}
+
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const testing = std.testing;
@@ -491,8 +561,9 @@ const assert = utils.assert;
 const Tables = @import("tables.zig");
 const op_to_code = Tables.op_to_code;
 const code_flags = Tables.code_flags;
+const effective_address_map = Tables.effective_address_map;
 const Operand = Tables.Operand;
-const Register = Tables.Registers;
+const Registers = Tables.Registers;
 const Code = Tables.Code;
 const Flags = Tables.Flags;
 const FlagCheck = Tables.FlagCheck;

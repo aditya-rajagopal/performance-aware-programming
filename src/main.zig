@@ -39,9 +39,13 @@ pub fn main() !void {
         defer file.close();
         var buffer: [10240]u8 = undefined;
         const data = try file.reader().readAll(&buffer);
-        utils.print_bytecode(buffer[0..data]);
+        if (config.verbose) {
+            utils.print_bytecode(buffer[0..data]);
+        }
         output = try sim8086.disassemble(buffer[0..data], allocator);
-        try outw.print("{s}\n", .{output});
+        if (config.verbose) {
+            try outw.print("{s}\n", .{output});
+        }
     } else if (config.simulate) |s_file| {
         var start = try std.time.Timer.start();
         const file = try std.fs.cwd().openFile(s_file, .{});
@@ -50,7 +54,11 @@ pub fn main() !void {
         const data = try file.reader().readAll(&buffer);
         // utils.print_bytecode(buffer[0..data]);
         const file_read = start.lap();
-        output = try sim8086.simulate(buffer[0..data], allocator);
+        output = try sim8086.simulate(
+            buffer[0..data],
+            allocator,
+            .{ .verbose = config.verbose, .mem_dump = config.mem_dump },
+        );
         const simulation_time = start.read();
         std.debug.print("Time to run simulation: {s}, file_read: {s}\n", .{
             std.fmt.fmtDuration(simulation_time),

@@ -9,6 +9,10 @@ const options = [_][]const u8{
     "--output",
     "-s",
     "--sim",
+    "-v",
+    "--verbose",
+    "-md",
+    "--mem_dump",
 };
 
 pub const Config = struct {
@@ -17,6 +21,8 @@ pub const Config = struct {
     output: ?[]const u8 = null,
     enable_output: bool = false,
     help: bool = false,
+    verbose: bool = false,
+    mem_dump: bool = false,
     is_error: bool = false,
 
     pub fn deinit(self: *Config, allocator: std.mem.Allocator) void {
@@ -38,6 +44,8 @@ pub const usage =
     \\ sim8086 [options]
     \\
     \\      -h, --help                  print usage
+    \\      -v, --verbose <?path>       Enable printing of each instruction and change in register states
+    \\      -md, --mem_dump <?path>     Dump memory to std out
     \\      -d, --disassemble <path>    file you want to disassemble
     \\      -s, --sim <path>            Takes a binary file and simulates an Intel 8086 running the provided bytecode
     \\                                  stream. Outputs the change in register states as the instructions are processed
@@ -74,6 +82,12 @@ pub fn parseArgs(allocator: std.mem.Allocator) !Config {
         if (std.mem.eql(u8, arg, "-h") or std.mem.eql(u8, arg, "--help")) {
             config.help = true;
             break;
+        }
+        if (std.mem.eql(u8, arg, "-v") or std.mem.eql(u8, arg, "--verbose")) {
+            config.verbose = true;
+        }
+        if (std.mem.eql(u8, arg, "-md") or std.mem.eql(u8, arg, "--mem_dump")) {
+            config.mem_dump = true;
         }
         if ((std.mem.eql(u8, arg, "-d") or std.mem.eql(u8, arg, "--disassemble")) and config.disassemble == null) {
             temp_arg = args.next();
