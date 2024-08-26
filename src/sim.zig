@@ -1,7 +1,7 @@
 const std = @import("std");
 const sim8086 = @import("sim8086");
-const parse_args = @import("parse_args.zig").parseArgs;
-const usage_str = @import("parse_args.zig").usage;
+const parse_args = @import("parse_sim_args.zig").parseArgs;
+const usage_str = @import("parse_sim_args.zig").usage;
 const utils = @import("utils");
 
 pub fn main() !void {

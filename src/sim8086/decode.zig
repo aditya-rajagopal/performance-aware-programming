@@ -29,7 +29,6 @@ pub fn decode_next_instruction(bytecode: []const u8, flags: u8, segment_override
     const op_byte = bytecode[0];
     var read_pos: usize = 0;
 
-    // TODO: Test if inlining this for loop makes it faster or if the compiler inlines it for us
     inst_loop: for (instruction_map, 0..) |inst, i| {
         const op_found = op_byte >> @intCast(inst[0].position) == inst[0].payload;
 

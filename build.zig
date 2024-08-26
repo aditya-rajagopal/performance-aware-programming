@@ -16,6 +16,8 @@ pub fn build(b: *std.Build) void {
         .imports = &.{.{ .name = "utils", .module = utils }},
     });
 
+    const haversine = b.addModule("utils", .{ .root_source_file = .{ .path = "src/haversine/haversine.zig" } });
+
     // --------------------------------------------------------------------------------------------------------------
     // -------------------------------------------- Executables -----------------------------------------------------
     // --------------------------------------------------------------------------------------------------------------
@@ -32,15 +34,36 @@ pub fn build(b: *std.Build) void {
 
     const sim_cmd = b.addRunArtifact(sim);
     sim_cmd.step.dependOn(b.getInstallStep());
+
     if (b.args) |args| {
         sim_cmd.addArgs(args);
     }
 
+    const data_gen = b.addExecutable(.{
+        .name = "haversine_data_gen",
+        .root_source_file = b.path("src/haversine/haversine_gen.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
+    data_gen.root_module.addImport("utils", utils);
+    data_gen.root_module.addImport("haversine", haversine);
+    b.installArtifact(data_gen);
+
+    const data_gen_cmd = b.addRunArtifact(data_gen);
+    data_gen_cmd.step.dependOn(b.getInstallStep());
+
+    if (b.args) |args| {
+        data_gen_cmd.addArgs(args);
+    }
     // --------------------------------------------------------------------------------------------------------------
     // -------------------------------------------- Steps -----------------------------------------------------------
     // --------------------------------------------------------------------------------------------------------------
     const sim_step = b.step("sim", "Run the simulation application");
     sim_step.dependOn(&sim_cmd.step);
+
+    const data_gen_step = b.step("data-gen", "Generate haversine data");
+    data_gen_step.dependOn(&data_gen_cmd.step);
 
     // --------------------------------------------------------------------------------------------------------------
     // -------------------------------------------- Tests -----------------------------------------------------------
