@@ -1,20 +1,15 @@
 const std = @import("std");
 const utils = @import("utils");
-const haversine = @import("haversine");
-
-const MAX_POINTS = 1000;
-const EarthRadius = 6372.8;
+const defines = @import("defines.zig");
+const uniform = @import("uniform.zig");
+const clustered = @import("clustered.zig");
+const Distributions = defines.Distributions;
 
 const usage =
     \\ 
     \\ Usage:
     \\ haversine_gen [uniform/cluster] [seed] [number of point pairs]
 ;
-
-const Distributions = enum {
-    uniform,
-    clustered,
-};
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
@@ -55,7 +50,11 @@ pub fn main() !void {
         std.log.err("{s}\n", .{usage});
         return;
     };
-    const num_points = try std.fmt.parseInt(u64, num_points_str, 10);
+    var num_points = try std.fmt.parseInt(u64, num_points_str, 10);
+    if (num_points > defines.MAX_POINTS) {
+        std.log.warn("Number of points to generate exceeds the maximum {d}: got {d}", .{ defines.MAX_POINTS, num_points });
+        num_points = defines.MAX_POINTS;
+    }
 
     {
         var buffer: [1024]u8 = undefined;
@@ -73,21 +72,40 @@ pub fn main() !void {
         const data_writer = data_file.writer();
         var data_buf = std.io.BufferedWriter(1024000, @TypeOf(out_writer)){ .unbuffered_writer = data_writer };
 
-        var rng = std.rand.Pcg.init(seed);
+        switch (distribution_type) {
+            .uniform => uniform.init(seed),
+            .clustered => {
+                const num_clusters: usize = 1 + @divFloor(num_points, 64);
+                const points_per_cluster: usize = @divFloor(num_points, num_clusters) + 1;
+                try clustered.init(allocator, num_clusters, points_per_cluster, seed);
+            },
+        }
 
         _ = try out_buf.write("{{\"pairs\": [\n");
         const delimiter = [_][]const u8{ ",\n", "\n" };
 
         var average: f64 = 0;
 
-        for (0..num_points) |i| {
-            const x0 = (rng.random().float(f64) * 360.0 - 180.0);
-            const y0 = (rng.random().float(f64) * 180.0 - 90.0);
-            const x1 = (rng.random().float(f64) * 360.0 - 180.0);
-            const y1 = (rng.random().float(f64) * 180.0 - 90.0);
+        var x0: f64 = undefined;
+        var y0: f64 = undefined;
+        var x1: f64 = undefined;
+        var y1: f64 = undefined;
+        var distance: f64 = undefined;
 
-            const distance = haversine.ReferenceHaversine(x0, y0, x1, y1, EarthRadius);
-            average += distance;
+        const ratio: f64 = 1 / @as(f64, @floatFromInt(num_points));
+
+        for (0..num_points) |i| {
+            switch (distribution_type) {
+                .uniform => {
+                    x0, y0, x1, y1 = uniform.get_point();
+                },
+                .clustered => {
+                    x0, y0, x1, y1 = clustered.get_point();
+                },
+            }
+
+            distance = defines.ReferenceHaversine(x0, y0, x1, y1, defines.EARTH_RADIUS);
+            average += distance * ratio;
 
             _ = try out_buf_writer.print("{{\"x0\":{d},\"y0\":{d},\"x1\":{d},\"y1\":{d} }}", .{ x0, y0, x1, y1 });
             _ = try data_buf.write(std.mem.asBytes(&distance));
@@ -96,11 +114,11 @@ pub fn main() !void {
             _ = try out_buf.write(delimiter[delim]);
         }
 
-        average = average / @as(f64, @floatFromInt(num_points));
         _ = try data_buf.write(std.mem.asBytes(&average));
         _ = try out_buf.write("]");
         try out_buf.flush();
         try data_buf.flush();
+        clustered.deinit();
         const end = start.read();
 
         std.debug.print("Average: {d}\n", .{average});

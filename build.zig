@@ -16,8 +16,6 @@ pub fn build(b: *std.Build) void {
         .imports = &.{.{ .name = "utils", .module = utils }},
     });
 
-    const haversine = b.addModule("utils", .{ .root_source_file = .{ .path = "src/haversine/haversine.zig" } });
-
     // --------------------------------------------------------------------------------------------------------------
     // -------------------------------------------- Executables -----------------------------------------------------
     // --------------------------------------------------------------------------------------------------------------
@@ -47,7 +45,6 @@ pub fn build(b: *std.Build) void {
     });
 
     data_gen.root_module.addImport("utils", utils);
-    data_gen.root_module.addImport("haversine", haversine);
     b.installArtifact(data_gen);
 
     const data_gen_cmd = b.addRunArtifact(data_gen);
