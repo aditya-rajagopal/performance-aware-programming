@@ -53,6 +53,24 @@ pub fn build(b: *std.Build) void {
     if (b.args) |args| {
         data_gen_cmd.addArgs(args);
     }
+
+    const parse = b.addExecutable(.{
+        .name = "haversine_parse",
+        // .root_source_file = b.path("src/haversine/json_lexer.zig"),
+        .root_source_file = b.path("src/haversine/json_parser.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
+    parse.root_module.addImport("utils", utils);
+    b.installArtifact(data_gen);
+
+    const parse_cmd = b.addRunArtifact(parse);
+    parse_cmd.step.dependOn(b.getInstallStep());
+
+    if (b.args) |args| {
+        parse_cmd.addArgs(args);
+    }
     // --------------------------------------------------------------------------------------------------------------
     // -------------------------------------------- Steps -----------------------------------------------------------
     // --------------------------------------------------------------------------------------------------------------
@@ -61,6 +79,9 @@ pub fn build(b: *std.Build) void {
 
     const data_gen_step = b.step("data-gen", "Generate haversine data");
     data_gen_step.dependOn(&data_gen_cmd.step);
+
+    const parse_step = b.step("parser", "Parse haversine data");
+    parse_step.dependOn(&parse_cmd.step);
 
     // --------------------------------------------------------------------------------------------------------------
     // -------------------------------------------- Tests -----------------------------------------------------------
@@ -84,6 +105,15 @@ pub fn build(b: *std.Build) void {
     const run_sim8086_unit_tests = b.addRunArtifact(sim8086_unit_tests);
     run_sim8086_unit_tests.has_side_effects = true;
 
+    const haversine_unit_tests = b.addTest(.{
+        .root_source_file = b.path("src/haversine/json_parser.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
+    const run_haversine_unit_tests = b.addRunArtifact(haversine_unit_tests);
+    run_haversine_unit_tests.has_side_effects = true;
+
     const sim_unit_tests = b.addTest(.{
         .root_source_file = b.path("src/sim.zig"),
         .target = target,
@@ -98,4 +128,5 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&run_utils_unit_tests.step);
     test_step.dependOn(&run_sim8086_unit_tests.step);
     test_step.dependOn(&run_sim_unit_tests.step);
+    test_step.dependOn(&run_haversine_unit_tests.step);
 }

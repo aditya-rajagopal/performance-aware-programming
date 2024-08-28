@@ -81,7 +81,7 @@ pub fn main() !void {
             },
         }
 
-        _ = try out_buf.write("{{\"pairs\": [\n");
+        _ = try out_buf.write("{\"pairs\": [\n");
         const delimiter = [_][]const u8{ ",\n", "\n" };
 
         var average: f64 = 0;
@@ -107,7 +107,10 @@ pub fn main() !void {
             distance = defines.ReferenceHaversine(x0, y0, x1, y1, defines.EARTH_RADIUS);
             average += distance * ratio;
 
-            _ = try out_buf_writer.print("{{\"x0\":{d},\"y0\":{d},\"x1\":{d},\"y1\":{d} }}", .{ x0, y0, x1, y1 });
+            _ = try out_buf_writer.print(
+                "{{" ++ "\"x0\":{d},\"y0\":{d},\"x1\":{d},\"y1\":{d}" ++ "}}",
+                .{ x0, y0, x1, y1 },
+            );
             _ = try data_buf.write(std.mem.asBytes(&distance));
 
             const delim: usize = @intFromBool(i == num_points - 1);
@@ -115,7 +118,7 @@ pub fn main() !void {
         }
 
         _ = try data_buf.write(std.mem.asBytes(&average));
-        _ = try out_buf.write("]");
+        _ = try out_buf.write("]}");
         try out_buf.flush();
         try data_buf.flush();
         clustered.deinit();
