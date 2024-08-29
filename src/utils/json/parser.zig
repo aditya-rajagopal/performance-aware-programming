@@ -333,45 +333,6 @@ fn expect_consume_token(self: *Parser, tag: Token.Tag) ParserError!Token {
     return current_token;
 }
 
-test Parser {
-    std.debug.print("Size of Token: {d}\n", .{@sizeOf(Token)});
-    std.debug.print("Size of JSON: {d}\n", .{@sizeOf(JSON)});
-    std.debug.print("Size of JsonElement: {d}\n", .{@sizeOf(JSON.Node)});
-    std.debug.print("Size of Parser: {d}\n", .{@sizeOf(Parser)});
-}
-
-test JSON {
-    // std.debug.print("{any}\n", .{@typeInfo([2]u32)});
-    // var extra_data = std.ArrayList(u32).init(std.testing.allocator);
-    // defer extra_data.deinit();
-    //
-    // const test_int: i64 = -1;
-    // const test_float: f64 = std.math.pi;
-    //
-    // const slice_test: []const u32 align(8) = &[_]u32{ 1, 2 };
-    // std.debug.print("Slice?: {any}\n", .{@TypeOf(slice_test[0..2].*)});
-    //
-    // var output = try add_extra(&extra_data, test_float);
-    // std.debug.print("float output[{d}]: {d}\n", .{ output, extra_data.items });
-    // var float_readback = try read_extra(extra_data.items, f64, output);
-    // std.debug.print("Data read back: {d}\n", .{float_readback});
-    //
-    // output = try add_extra(&extra_data, slice_test);
-    // std.debug.print("Slice output[{d}]: {d}\n", .{ output, extra_data.items });
-    // const slice_readback = try read_extra(extra_data.items, []u32, output);
-    // std.debug.print("Data read back: {d}\n", .{slice_readback});
-    //
-    // output = try add_extra(&extra_data, test_int);
-    // std.debug.print("Output[{d}]: {d}\n", .{ output, extra_data.items });
-    // const readback = try read_extra(extra_data.items, i64, output);
-    // std.debug.print("Data read back: {d}\n", .{readback});
-    //
-    // output = try add_extra(&extra_data, test_float);
-    // std.debug.print("float output[{d}]: {d}\n", .{ output, extra_data.items });
-    // float_readback = try read_extra(extra_data.items, f64, output);
-    // std.debug.print("Data read back: {d}\n", .{float_readback});
-}
-
 const Lexer = @import("lexer.zig");
 const JSON = @import("json.zig");
 const NodeTag = JSON.Node.Tag;
