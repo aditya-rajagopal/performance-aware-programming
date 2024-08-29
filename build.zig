@@ -56,7 +56,6 @@ pub fn build(b: *std.Build) void {
 
     const parse = b.addExecutable(.{
         .name = "haversine_parse",
-        // .root_source_file = b.path("src/haversine/json_lexer.zig"),
         .root_source_file = b.path("src/haversine_parse.zig"),
         .target = target,
         .optimize = optimize,

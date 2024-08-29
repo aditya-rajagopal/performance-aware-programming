@@ -1,8 +1,13 @@
 const usage =
     \\ 
     \\ Usage:
-    \\ haversine_parse [haversine data file *.json]
+    \\ haversine_parse [buffered/full] [haversine data file *.json]
 ;
+
+pub const style = enum(u1) {
+    buffered,
+    file,
+};
 
 pub fn main() !void {
     var start = try std.time.Timer.start();
@@ -22,6 +27,21 @@ pub fn main() !void {
     var args = try std.process.argsWithAllocator(gpa_allocator);
     defer args.deinit();
     _ = args.next().?;
+
+    const read_style = args.next() orelse {
+        std.log.err("Missing argument [buffered/file]", .{});
+        std.log.err("{s}\n", .{usage});
+        return;
+    };
+
+    var parse_type = style.buffered;
+    if (std.mem.eql(u8, "file", read_style)) {
+        parse_type = style.file;
+    } else if (!std.mem.eql(u8, "buffered", read_style)) {
+        std.log.err("Invalid type of reading file: {s}", .{read_style});
+        std.log.err("{s}\n", .{usage});
+        return;
+    }
 
     const file_name = args.next() orelse {
         std.log.err("Missing argument [file]", .{});
@@ -49,7 +69,18 @@ pub fn main() !void {
 
     init_time = parts.lap();
 
-    var json = try JSON.parse_file(file_name, allocator, 50 * num_points);
+    var json: JSON = undefined;
+
+    switch (parse_type) {
+        .buffered => json = try JSON.parse_file(file_name, allocator, 50 * num_points),
+        .file => {
+            const data = try std.fs.cwd().readFileAlloc(allocator, file_name, 5e9);
+            defer allocator.free(data);
+            std.debug.print("Read file of: {d} bytes\n", .{data.len});
+            json = try JSON.parse_slice(data, allocator, 50 * num_points);
+        },
+    }
+
     std.debug.print(
         "JSON: strings: {d}, nodes: {d}, extra_data: {d}\n",
         .{ json.strings.len, json.nodes.len, json.extra_data.len },

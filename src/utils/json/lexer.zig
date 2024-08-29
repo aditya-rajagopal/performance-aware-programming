@@ -39,18 +39,16 @@ const Keywords = std.ComptimeStringMap(
     },
 );
 
-pub const Error = error{UNEXPECTED_EOF};
+pub const Error = error{ UNEXPECTED_EOF, InvalidFloat };
 
 pub fn init(source: []const u8) !JsonLexer {
     return .{
         .source = source,
-        // .tokens = .{},
     };
 }
 
 pub fn next_token(self: *JsonLexer) Token {
     const pos = self.eat_till_valid() catch {
-        // if (pos >= self.source.len) {
         return .{ .tag = .EOF, .start_pos = 0, .end_pos = self.source.len };
     };
 
@@ -68,7 +66,6 @@ pub fn next_token(self: *JsonLexer) Token {
             return .{ .tag = .STRING, .start_pos = pos + 1, .end_pos = end };
         },
         '-', '0'...'9' => {
-            // std.debug.print("Current charcter: {c}\n", .{self.source[pos]});
             const is_float = self.eat_number() catch {
                 return .{ .tag = .EOF, .start_pos = 0, .end_pos = pos };
             };
@@ -96,14 +93,13 @@ pub fn next_token(self: *JsonLexer) Token {
     }
 }
 
+// TODO(aditya): Possible performance bottleneck
 fn eat_number(self: *JsonLexer) !bool {
     var pos = try self.increment_pos();
     var char = self.source[pos];
     var is_float = false;
-    // std.debug.print("Number charcter: {c}\n", .{self.source[pos]});
     while ((char >= '0' and char <= '9') or char == '.') {
         if (char == '.') {
-            // std.debug.print("Found float\n", .{});
             is_float = true;
         }
         pos = try self.increment_pos();
@@ -169,35 +165,6 @@ fn eat_till_valid(self: *JsonLexer) !usize {
         char = self.source[pos];
     }
     return pos;
-}
-
-pub fn main() !void {
-    var start = try std.time.Timer.start();
-
-    const file = try std.fs.cwd().openFile("./data_10000000_clustered.json", .{});
-    defer file.close();
-    var buf_reader = std.io.bufferedReaderSize(1024000, file.reader());
-    var buffer: [1024000]u8 = undefined;
-
-    var out = try buf_reader.read(&buffer);
-    var token: Token = undefined;
-    while (out != 0) {
-        var lexer = try JsonLexer.init(buffer[0..out]);
-        token = lexer.next_token();
-        while (token.tag != .EOF) {
-            token = lexer.next_token();
-        }
-
-        if (out != token.end_pos) {
-            const len = out - token.end_pos + 1;
-            @memcpy(buffer[0..len], buffer[token.end_pos - 1 .. token.end_pos - 1 + len]);
-            out = try buf_reader.read(buffer[len..]) + len;
-        } else {
-            out = try buf_reader.read(&buffer);
-        }
-    }
-    const end = start.read();
-    std.debug.print("Time to lex: {s}\n", .{std.fmt.fmtDuration(end)});
 }
 
 const std = @import("std");

@@ -31,7 +31,23 @@ pub fn parse_file(file_name: []const u8, allocator: std.mem.Allocator, expected_
     };
 
     parser.deinit();
-    // allocator.destroy(parser);
+
+    return json;
+}
+
+pub fn parse_slice(source: []u8, allocator: std.mem.Allocator, expected_capacity: usize) Parser.ParserError!JSON {
+    var parser = try Parser.initSlice(source, allocator, expected_capacity);
+
+    try parser.parse();
+
+    const json = JSON{
+        .extra_data = try parser.extra_data.toOwnedSlice(),
+        .strings = try parser.string_store.toOwnedSlice(),
+        .nodes = parser.nodes.toOwnedSlice(),
+        .allocator = allocator,
+    };
+
+    parser.deinit();
 
     return json;
 }

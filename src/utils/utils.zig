@@ -6,3 +6,9 @@ pub const json = @import("json/json.zig");
 pub inline fn isComptime(val: anytype) bool {
     return @typeInfo(@TypeOf(.{val})).Struct.fields[0].is_comptime;
 }
+
+comptime {
+    _ = @import("json/parser.zig");
+    _ = @import("json/lexer.zig");
+    _ = @import("json/json.zig");
+}
