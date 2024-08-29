@@ -57,13 +57,13 @@ pub fn build(b: *std.Build) void {
     const parse = b.addExecutable(.{
         .name = "haversine_parse",
         // .root_source_file = b.path("src/haversine/json_lexer.zig"),
-        .root_source_file = b.path("src/haversine/json_parser.zig"),
+        .root_source_file = b.path("src/haversine_parse.zig"),
         .target = target,
         .optimize = optimize,
     });
 
     parse.root_module.addImport("utils", utils);
-    b.installArtifact(data_gen);
+    b.installArtifact(parse);
 
     const parse_cmd = b.addRunArtifact(parse);
     parse_cmd.step.dependOn(b.getInstallStep());
@@ -106,10 +106,11 @@ pub fn build(b: *std.Build) void {
     run_sim8086_unit_tests.has_side_effects = true;
 
     const haversine_unit_tests = b.addTest(.{
-        .root_source_file = b.path("src/haversine/json_parser.zig"),
+        .root_source_file = b.path("src/haversine_parse.zig"),
         .target = target,
         .optimize = optimize,
     });
+    haversine_unit_tests.root_module.addImport("utils", utils);
 
     const run_haversine_unit_tests = b.addRunArtifact(haversine_unit_tests);
     run_haversine_unit_tests.has_side_effects = true;
