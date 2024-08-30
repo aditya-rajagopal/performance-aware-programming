@@ -86,6 +86,8 @@ pub fn query(self: *JSON, key: []const u8, object_location: NodeIndex) Error!?No
     return data_location;
 }
 
+// TODO: Change this function to accept a struct for objects and array of value types for Arrays
+// And remove the query_struct function. Just this 1 fucntion should be enough.
 pub fn query_expect(self: *JSON, T: type, key: []const u8, object_location: NodeIndex) JSON.Error!T {
     const entry = (try self.query(key, object_location)) orelse {
         return Error.KeyNotFound;

@@ -228,7 +228,7 @@ fn parse_expect_entry(self: *Parser) ParserError!NodeIndex {
     // NOTE(aditya): The node is added before creating the value for it as
     // a small performance imporovement when querying the json as it is more
     // likely that when you are checking for the string keys matching the value
-    // is in the cache already. This gave a small 5% improvemnet in speed when querying.
+    // is in the cache already. This gave a small 5% improvemnet in speed.
     const pos = self.nodes.len;
     try self.nodes.append(
         self.allocator,

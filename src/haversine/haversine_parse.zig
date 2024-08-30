@@ -10,8 +10,14 @@ pub const style = enum(u1) {
 };
 
 pub fn main() !void {
-    var start = try std.time.Timer.start();
-    var parts = try std.time.Timer.start();
+    // var start = try std.time.Timer.start();
+    // var parts = try std.time.Timer.start();
+    var init_time: u64 = undefined;
+    var parse_time: u64 = undefined;
+    var haversine_time: u64 = undefined;
+
+    utils.instrument.calibrate_frequency(50);
+    const program_start = rdtsc();
 
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     const gpa_allocator = gpa.allocator();
@@ -73,11 +79,7 @@ pub fn main() !void {
         have_data_file = true;
     }
 
-    var init_time: u64 = undefined;
-    var finish_time: u64 = undefined;
-    var haversine_time: u64 = undefined;
-
-    init_time = parts.lap();
+    init_time = rdtsc();
 
     var json: JSON = undefined;
 
@@ -90,7 +92,7 @@ pub fn main() !void {
             json = try JSON.parse_slice(data, allocator, 50 * num_points);
         },
     }
-    finish_time = parts.lap();
+    parse_time = rdtsc();
 
     std.debug.print(
         "JSON: strings: {d}, nodes: {d}, extra_data: {d}\n",
@@ -123,22 +125,37 @@ pub fn main() !void {
         cached_average = std.mem.bytesAsValue(f64, binary_data[index * 8 ..]).*;
     }
 
-    haversine_time = parts.lap();
+    haversine_time = rdtsc();
     json.deinit();
-    const end = start.read();
-    std.debug.print("Time to init: {s}\n", .{std.fmt.fmtDuration(init_time)});
-    std.debug.print("Time to parse json: {s}\n", .{std.fmt.fmtDuration(finish_time)});
-    std.debug.print("Time to calculate haversine: {s}\n", .{std.fmt.fmtDuration(haversine_time)});
-    std.debug.print("Total Time: {s}\n", .{std.fmt.fmtDuration(end)});
+    const full_time = rdtsc();
+
+    const time_to_init = utils.instrument.duration(init_time, program_start);
+    const time_to_parse = utils.instrument.duration(parse_time, init_time);
+    const time_to_haversine = utils.instrument.duration(haversine_time, parse_time);
+    const total_time = utils.instrument.duration(full_time, program_start);
+
     std.debug.print("Parsed JSON haversine result: {d}\n", .{average});
+
     if (have_data_file) {
         std.debug.print("Cached JSON haversine result: {d}\n", .{cached_average});
         std.debug.print("Average difference: {d}\n", .{avg_difference});
         std.debug.print("Number of points with different distances: {d}\n", .{num_different_points});
     }
+
+    std.debug.print("\n", .{});
+
+    std.debug.print("Total Time: {d:.3}ms. (CPU Frequency: {d})\n", .{ total_time * 1000.0, utils.instrument.calibrated_cpu_frequency });
+    std.debug.print("\tTime to init: {d:.3}ms  ({d:.2}%)\n", .{ time_to_init * 1000.0, time_to_init * 100.0 / total_time });
+    std.debug.print("\tTime to parse json: {d:.3}ms ({d:.2})%\n", .{ time_to_parse * 1000.0, time_to_parse * 100.0 / total_time });
+    std.debug.print("\tTime to calculate haversine: {d:.3}ms ({d:.2}%)\n", .{ time_to_haversine * 1000.0, time_to_haversine * 100.0 / total_time });
+    const printing = rdtsc();
+    const printing_time = utils.instrument.duration(printing, full_time);
+    std.debug.print("\tTime to print times: {d:.3}ms\n", .{printing_time * 1000.0});
 }
 
 const JSON = @import("utils").json;
+const utils = @import("utils");
+const rdtsc = utils.instrument.rdtsc;
 const std = @import("std");
 const defines = @import("defines.zig");
 const PointPair = defines.PointPair;
