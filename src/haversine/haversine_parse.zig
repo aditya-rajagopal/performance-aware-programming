@@ -1,7 +1,7 @@
 const usage =
     \\ 
     \\ Usage:
-    \\ haversine_parse [buffered/full] [haversine data file *.json]
+    \\ haversine_parse [buffered/full] [haversine data file *.json] [?data.bin]
 ;
 
 pub const style = enum(u1) {
@@ -64,8 +64,18 @@ pub fn main() !void {
         return;
     };
 
+    var have_data_file: bool = false;
+    var binary_data: []const u8 = undefined;
+    const data_file_name = args.next();
+    if (data_file_name) |file| {
+        binary_data = try std.fs.cwd().readFileAlloc(allocator, file, 5e9);
+        std.debug.print("Read binary file of: {d} bytes\n", .{binary_data.len});
+        have_data_file = true;
+    }
+
     var init_time: u64 = undefined;
     var finish_time: u64 = undefined;
+    var haversine_time: u64 = undefined;
 
     init_time = parts.lap();
 
@@ -80,22 +90,56 @@ pub fn main() !void {
             json = try JSON.parse_slice(data, allocator, 50 * num_points);
         },
     }
+    finish_time = parts.lap();
 
     std.debug.print(
         "JSON: strings: {d}, nodes: {d}, extra_data: {d}\n",
         .{ json.strings.len, json.nodes.len, json.extra_data.len },
     );
-    std.debug.print(
-        "Strings: {s}\n",
-        .{json.strings},
-    );
+
+    const array_nodes: JSON.Node.Array = try json.query_expect(JSON.Node.Array, "pairs", JSON.root_node);
+
+    var average: f64 = 0;
+    var avg_difference: f64 = 0;
+    var num_different_points: usize = 0;
+    var index: usize = 0;
+    for (array_nodes) |node| {
+        const p: PointPair = try json.query_struct(PointPair, node);
+        const result = ReferenceHaversine(p.x0, p.y0, p.x1, p.y1, defines.EARTH_RADIUS);
+        average += result;
+        if (have_data_file) {
+            const cached_distance = std.mem.bytesAsValue(f64, binary_data[index * 8 ..]);
+            const difference = result - cached_distance.*;
+            num_different_points += @intFromBool(difference > 0);
+            avg_difference += difference;
+            index += 1;
+        }
+    }
+    const num_points_float = @as(f64, @floatFromInt(num_points));
+    average = average / num_points_float;
+    avg_difference = avg_difference / num_points_float;
+    var cached_average: f64 = 0;
+    if (have_data_file) {
+        cached_average = std.mem.bytesAsValue(f64, binary_data[index * 8 ..]).*;
+    }
+
+    haversine_time = parts.lap();
     json.deinit();
-    finish_time = parts.read();
     const end = start.read();
     std.debug.print("Time to init: {s}\n", .{std.fmt.fmtDuration(init_time)});
     std.debug.print("Time to parse json: {s}\n", .{std.fmt.fmtDuration(finish_time)});
-    std.debug.print("Total: {s}\n", .{std.fmt.fmtDuration(end)});
+    std.debug.print("Time to calculate haversine: {s}\n", .{std.fmt.fmtDuration(haversine_time)});
+    std.debug.print("Total Time: {s}\n", .{std.fmt.fmtDuration(end)});
+    std.debug.print("Parsed JSON haversine result: {d}\n", .{average});
+    if (have_data_file) {
+        std.debug.print("Cached JSON haversine result: {d}\n", .{cached_average});
+        std.debug.print("Average difference: {d}\n", .{avg_difference});
+        std.debug.print("Number of points with different distances: {d}\n", .{num_different_points});
+    }
 }
 
 const JSON = @import("utils").json;
 const std = @import("std");
+const defines = @import("defines.zig");
+const PointPair = defines.PointPair;
+const ReferenceHaversine = defines.ReferenceHaversine;

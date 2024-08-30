@@ -21,7 +21,7 @@ pub fn build(b: *std.Build) void {
     // --------------------------------------------------------------------------------------------------------------
     const sim = b.addExecutable(.{
         .name = "sim8086",
-        .root_source_file = b.path("src/sim.zig"),
+        .root_source_file = b.path("src/sim8086/sim.zig"),
         .target = target,
         .optimize = optimize,
     });
@@ -56,7 +56,7 @@ pub fn build(b: *std.Build) void {
 
     const parse = b.addExecutable(.{
         .name = "haversine_parse",
-        .root_source_file = b.path("src/haversine_parse.zig"),
+        .root_source_file = b.path("src/haversine/haversine_parse.zig"),
         .target = target,
         .optimize = optimize,
     });
@@ -105,7 +105,7 @@ pub fn build(b: *std.Build) void {
     run_sim8086_unit_tests.has_side_effects = true;
 
     const haversine_unit_tests = b.addTest(.{
-        .root_source_file = b.path("src/haversine_parse.zig"),
+        .root_source_file = b.path("src/haversine/haversine_parse.zig"),
         .target = target,
         .optimize = optimize,
     });
@@ -115,7 +115,7 @@ pub fn build(b: *std.Build) void {
     run_haversine_unit_tests.has_side_effects = true;
 
     const sim_unit_tests = b.addTest(.{
-        .root_source_file = b.path("src/sim.zig"),
+        .root_source_file = b.path("src/sim8086/sim.zig"),
         .target = target,
         .optimize = optimize,
     });

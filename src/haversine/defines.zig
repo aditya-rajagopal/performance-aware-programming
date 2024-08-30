@@ -6,6 +6,10 @@ pub const PointPair = struct {
     y0: f64,
     x1: f64,
     y1: f64,
+
+    pub fn format(self: PointPair, comptime _: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
+        try writer.print("PointPair{{" ++ "p1:({d}, {d}), p2:({d}, {d})" ++ "}}", .{ self.x0, self.y0, self.x1, self.y1 });
+    }
 };
 
 pub const Distributions = enum {

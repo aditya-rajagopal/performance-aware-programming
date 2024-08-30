@@ -5,6 +5,8 @@ pub const INDEX_TYPE = u32;
 pub const MAX_NODE_DATA = std.math.maxInt(INDEX_TYPE);
 
 const Parser = @This();
+
+// Supporting data for the parser
 is_done: bool,
 is_file: bool,
 next_token: Token,
@@ -14,15 +16,16 @@ lexer: Lexer,
 buffer_pos: usize,
 buffer: []u8,
 scratch_space: std.ArrayListUnmanaged(NodeIndex),
-string_map: std.StringHashMap(NodeIndex),
+string_map: JsonStringMap,
+allocator: std.mem.Allocator,
 
+// Actual data
 string_store: std.ArrayList(u8),
 nodes: JSON.NodeArray,
 extra_data: JSON.DataArray,
-allocator: std.mem.Allocator,
 
 pub const BufferedReader = std.io.BufferedReader(BUFFER_SIZE, std.fs.File.Reader);
-
+pub const JsonStringMap = std.StringHashMap(Node.String);
 pub const Error = error{InvalidToken};
 pub const ParserError = Error || std.mem.Allocator.Error || Parser.BufferedReader.Error || std.fs.File.OpenError;
 
@@ -49,7 +52,7 @@ pub fn init(file_name: []const u8, allocator: std.mem.Allocator, expected_capaci
     parser.extra_data = try std.ArrayList(NodeIndex).initCapacity(allocator, expected_capacity);
     parser.allocator = allocator;
 
-    parser.string_map = std.StringHashMap(NodeIndex).init(allocator);
+    parser.string_map = JsonStringMap.init(allocator);
 
     return parser;
 }
@@ -75,7 +78,7 @@ pub fn initSlice(slice: []u8, allocator: std.mem.Allocator, expected_capacity: u
     parser.extra_data = try std.ArrayList(NodeIndex).initCapacity(allocator, expected_capacity);
     parser.allocator = allocator;
 
-    parser.string_map = std.StringHashMap(NodeIndex).init(allocator);
+    parser.string_map = JsonStringMap.init(allocator);
 
     return parser;
 }
@@ -105,13 +108,13 @@ pub fn parse(self: *Parser) ParserError!void {
     try self.nodes.append(
         self.allocator,
         JSON.Node{
-            .key = 0,
-            .tag = .json,
+            .key = [2]NodeIndex{ 0, 0 },
+            .tag = .object,
             .data = undefined,
         },
     );
 
-    self.nodes.items(.data)[0] = try self.parse_expect_json_value();
+    self.nodes.items(.data)[0] = try self.parse_expect_object();
 }
 
 fn add_extra(self: *Parser, data: anytype) std.mem.Allocator.Error!JSON.NodeIndex {
@@ -195,7 +198,7 @@ fn get_next_token(self: *Parser) !Token {
     return current_token;
 }
 
-fn parse_expect_json_value(self: *Parser) ParserError!NodeIndex {
+fn parse_expect_object(self: *Parser) ParserError!NodeIndex {
     const start = self.scratch_space.items.len;
     defer self.scratch_space.shrinkRetainingCapacity(start);
 
@@ -210,6 +213,7 @@ fn parse_expect_json_value(self: *Parser) ParserError!NodeIndex {
     }
 
     if (comma.tag != .RIGHT_BRACKET) {
+        std.debug.print("Got token: {s}\n", .{comma});
         return Error.InvalidToken;
     }
     const data_location = try self.add_extra(self.scratch_space.items[start..]);
@@ -217,11 +221,13 @@ fn parse_expect_json_value(self: *Parser) ParserError!NodeIndex {
 }
 
 fn parse_expect_entry(self: *Parser) ParserError!NodeIndex {
-    const entry_key = try self.parse_exect_string_value();
+    const key = try self.expect_consume_token(.STRING);
+    const entry_key = try self.parse_exect_string_value(key);
     _ = try self.expect_consume_token(.COLON);
 
-    const pos = self.nodes.len;
     const tag, const value = try self.parse_expect_value();
+
+    const pos = self.nodes.len;
     try self.nodes.append(
         self.allocator,
         JSON.Node{ .key = entry_key, .tag = tag, .data = value },
@@ -229,8 +235,8 @@ fn parse_expect_entry(self: *Parser) ParserError!NodeIndex {
     return @intCast(pos);
 }
 
-fn parse_exect_string_value(self: *Parser) ParserError!NodeIndex {
-    const key = try self.expect_consume_token(.STRING);
+fn parse_exect_string_value(self: *Parser, key: Token) ParserError!Node.String {
+    // const key = try self.expect_consume_token(.STRING);
     const string = self.buffer[key.start_pos..key.end_pos];
     const value = self.string_map.get(string);
     if (value) |v| {
@@ -241,7 +247,7 @@ fn parse_exect_string_value(self: *Parser) ParserError!NodeIndex {
     try self.string_store.appendSlice(string);
     const string_end: u32 = @intCast(self.string_store.items.len);
 
-    const data_location = try self.add_extra([_]u32{ string_start, string_end });
+    const data_location = [2]u32{ string_start, string_end };
 
     try self.string_map.put(try self.allocator.dupe(u8, self.string_store.items[string_start..string_end]), data_location);
 
@@ -253,16 +259,16 @@ fn parse_expect_value(self: *Parser) ParserError!struct { NodeTag, JSON.Node.Dat
 
     switch (next_token.tag) {
         .LEFT_BRACKET => {
-            const pos = try self.parse_expect_json_value();
-            return .{ NodeTag.json, @as(u64, @intCast(pos)) };
+            const pos = try self.parse_expect_object();
+            return .{ NodeTag.object, @as(u64, @intCast(pos)) };
         },
         .LEFT_BRACE => {
             const pos = try self.parse_expect_array_value();
             return .{ NodeTag.array, @as(u64, @intCast(pos)) };
         },
         .STRING => {
-            const pos = try self.parse_exect_string_value();
-            return .{ NodeTag.string, @as(u64, @intCast(pos)) };
+            const string = try self.parse_exect_string_value(next_token);
+            return .{ NodeTag.string, @as(u64, @bitCast(string)) };
         },
         .NUMBER => {
             const value: f64 = std.fmt.parseFloat(f64, self.buffer[next_token.start_pos..next_token.end_pos]) catch {
@@ -277,15 +283,12 @@ fn parse_expect_value(self: *Parser) ParserError!struct { NodeTag, JSON.Node.Dat
             return .{ NodeTag.integer, @as(u64, @bitCast(value)) };
         },
         .TRUE => {
-            _ = try self.get_next_token();
-            return .{ NodeTag.boolean_true, 0 };
+            return .{ NodeTag.boolean_true, 1 };
         },
         .FALSE => {
-            _ = try self.get_next_token();
             return .{ NodeTag.boolean_false, 0 };
         },
         .NULL => {
-            _ = try self.get_next_token();
             return .{ NodeTag.null, 0 };
         },
         .EOF => {
@@ -308,7 +311,7 @@ fn parse_expect_array_value(self: *Parser) ParserError!NodeIndex {
         const pos: u32 = @intCast(self.nodes.len);
         try self.nodes.append(
             self.allocator,
-            JSON.Node{ .key = 0, .tag = tag, .data = value },
+            JSON.Node{ .key = [2]NodeIndex{ 0, 0 }, .tag = tag, .data = value },
         );
         try self.scratch_space.append(self.allocator, pos);
 
@@ -335,6 +338,7 @@ fn expect_consume_token(self: *Parser, tag: Token.Tag) ParserError!Token {
 
 const Lexer = @import("lexer.zig");
 const JSON = @import("json.zig");
+const Node = JSON.Node;
 const NodeTag = JSON.Node.Tag;
 const NodeIndex = JSON.NodeIndex;
 const Token = Lexer.Token;

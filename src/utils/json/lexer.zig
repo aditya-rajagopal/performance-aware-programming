@@ -125,7 +125,7 @@ fn eat_number(self: *JsonLexer) !bool {
 fn eat_till_delimiter(self: *JsonLexer) !usize {
     var pos = try self.increment_pos();
     var char = self.source[pos];
-    while (char != ',' and char != ':' and char != '}' and char != ']') {
+    while (char != ',' and char != ':' and char != '}' and char != ']' and char != ' ') {
         pos = try self.increment_pos();
         char = self.source[pos];
     }
