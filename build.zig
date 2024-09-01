@@ -7,7 +7,12 @@ pub fn build(b: *std.Build) void {
     // --------------------------------------------------------------------------------------------------------------
     // -------------------------------------------- Modules ---------------------------------------------------------
     // --------------------------------------------------------------------------------------------------------------
-    const utils = b.addModule("utils", .{ .root_source_file = .{ .path = "src/utils/utils.zig" } });
+    const tracer = b.addModule("tracer", .{ .root_source_file = .{ .path = "src/tracer/tracer.zig" } });
+
+    const utils = b.addModule("utils", .{
+        .root_source_file = .{ .path = "src/utils/utils.zig" },
+        .imports = &.{.{ .name = "tracer", .module = tracer }},
+    });
 
     const sim8086 = b.addModule("sim8086", .{
         .root_source_file = .{
@@ -62,6 +67,7 @@ pub fn build(b: *std.Build) void {
     });
 
     parse.root_module.addImport("utils", utils);
+    parse.root_module.addImport("tracer", tracer);
     b.installArtifact(parse);
 
     const parse_cmd = b.addRunArtifact(parse);
@@ -90,6 +96,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    utils_unit_tests.root_module.addImport("tracer", tracer);
 
     const run_utils_unit_tests = b.addRunArtifact(utils_unit_tests);
     run_utils_unit_tests.has_side_effects = true;
@@ -110,6 +117,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     haversine_unit_tests.root_module.addImport("utils", utils);
+    haversine_unit_tests.root_module.addImport("tracer", tracer);
 
     const run_haversine_unit_tests = b.addRunArtifact(haversine_unit_tests);
     run_haversine_unit_tests.has_side_effects = true;
@@ -124,9 +132,19 @@ pub fn build(b: *std.Build) void {
     const run_sim_unit_tests = b.addRunArtifact(sim_unit_tests);
     run_sim_unit_tests.has_side_effects = true;
 
+    const tracer_unit_tests = b.addTest(.{
+        .root_source_file = b.path("src/tracer/tracer.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
+    const run_tracer_unit_tests = b.addRunArtifact(tracer_unit_tests);
+    run_tracer_unit_tests.has_side_effects = true;
+
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&run_utils_unit_tests.step);
     test_step.dependOn(&run_sim8086_unit_tests.step);
     test_step.dependOn(&run_sim_unit_tests.step);
     test_step.dependOn(&run_haversine_unit_tests.step);
+    test_step.dependOn(&run_tracer_unit_tests.step);
 }

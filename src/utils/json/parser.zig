@@ -30,7 +30,11 @@ pub const Error = error{InvalidToken};
 pub const ParserError = Error || std.mem.Allocator.Error || Parser.BufferedReader.Error || std.fs.File.OpenError;
 
 pub fn init(file_name: []const u8, allocator: std.mem.Allocator, expected_capacity: usize) !*Parser {
+    var p = tracer.trace(@src().fn_name, "create parser");
     var parser = try allocator.create(Parser);
+    tracer.trace_end(p);
+
+    p = tracer.trace(@src().fn_name, "Opening File");
     parser.file = try std.fs.cwd().openFile(file_name, .{});
     parser.reader = .{ .unbuffered_reader = undefined };
     parser.buffer_pos = 0;
@@ -40,11 +44,15 @@ pub fn init(file_name: []const u8, allocator: std.mem.Allocator, expected_capaci
     parser.reader.unbuffered_reader = parser.file.reader();
     parser.buffer = try allocator.alloc(u8, BUFFER_SIZE);
     parser.buffer_pos = try parser.reader.read(parser.*.buffer);
+    tracer.trace_end(p);
 
+    p = tracer.trace(@src().fn_name, "Lexing");
     parser.lexer = try Lexer.init(parser.buffer[0..parser.buffer_pos]);
 
     parser.next_token = parser.lexer.next_token();
+    tracer.trace_end(p);
 
+    p = tracer.trace(@src().fn_name, "Create storage stuff");
     parser.scratch_space = .{};
     parser.nodes = .{};
     try parser.nodes.ensureTotalCapacity(allocator, expected_capacity);
@@ -53,6 +61,7 @@ pub fn init(file_name: []const u8, allocator: std.mem.Allocator, expected_capaci
     parser.allocator = allocator;
 
     parser.string_map = JsonStringMap.init(allocator);
+    tracer.trace_end(p);
 
     return parser;
 }
@@ -351,6 +360,7 @@ fn expect_consume_token(self: *Parser, tag: Token.Tag) ParserError!Token {
 
 const Lexer = @import("lexer.zig");
 const JSON = @import("json.zig");
+const tracer = @import("tracer");
 const Node = JSON.Node;
 const NodeTag = JSON.Node.Tag;
 const NodeIndex = JSON.NodeIndex;

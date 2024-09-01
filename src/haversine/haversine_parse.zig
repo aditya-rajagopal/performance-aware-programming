@@ -12,12 +12,6 @@ pub const style = enum(u1) {
 pub fn main() !void {
     // var start = try std.time.Timer.start();
     // var parts = try std.time.Timer.start();
-    var init_time: u64 = undefined;
-    var parse_time: u64 = undefined;
-    var haversine_time: u64 = undefined;
-
-    utils.instrument.calibrate_frequency(50);
-    const program_start = rdtsc();
 
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     const gpa_allocator = gpa.allocator();
@@ -29,6 +23,11 @@ pub fn main() !void {
     var arena = std.heap.ArenaAllocator.init(gpa_allocator);
     defer arena.deinit();
     const allocator = arena.allocator();
+
+    try tracer.tracer_initialize(gpa_allocator, "Haversine Parser", 200, 50);
+    defer tracer.tracer_shutdown();
+
+    const init = tracer.trace(@src().fn_name, "Initialize");
 
     var args = try std.process.argsWithAllocator(gpa_allocator);
     defer args.deinit();
@@ -73,13 +72,19 @@ pub fn main() !void {
     var have_data_file: bool = false;
     var binary_data: []const u8 = undefined;
     const data_file_name = args.next();
+
+    _ = try allocator.alloc(u8, num_points * 50 * 30);
+    _ = arena.reset(.retain_capacity);
+
+    tracer.trace_end(init);
+
+    const data_file_read = tracer.trace(@src().fn_name, "Read Data file");
     if (data_file_name) |file| {
         binary_data = try std.fs.cwd().readFileAlloc(allocator, file, 5e9);
-        std.debug.print("Read binary file of: {d} bytes\n", .{binary_data.len});
+        // std.debug.print("Read binary file of: {d} bytes\n", .{binary_data.len});
         have_data_file = true;
     }
-
-    init_time = rdtsc();
+    tracer.trace_end(data_file_read);
 
     var json: JSON = undefined;
 
@@ -92,19 +97,22 @@ pub fn main() !void {
             json = try JSON.parse_slice(data, allocator, 50 * num_points);
         },
     }
-    parse_time = rdtsc();
 
     std.debug.print(
         "JSON: strings: {d}, nodes: {d}, extra_data: {d}\n",
         .{ json.strings.len, json.nodes.len, json.extra_data.len },
     );
 
+    const query_array = tracer.trace(@src().fn_name, "Querying Array");
     const array_nodes: JSON.Node.Array = try json.query_expect(JSON.Node.Array, "pairs", JSON.root_node);
+    tracer.trace_end(query_array);
 
     var average: f64 = 0;
     var avg_difference: f64 = 0;
     var num_different_points: usize = 0;
     var index: usize = 0;
+
+    const calcs = tracer.trace(@src().fn_name, "Parseing pairs");
     for (array_nodes) |node| {
         const p: PointPair = try json.query_struct(PointPair, node);
         const result = ReferenceHaversine(p.x0, p.y0, p.x1, p.y1, defines.EARTH_RADIUS);
@@ -125,14 +133,9 @@ pub fn main() !void {
         cached_average = std.mem.bytesAsValue(f64, binary_data[index * 8 ..]).*;
     }
 
-    haversine_time = rdtsc();
-    json.deinit();
-    const full_time = rdtsc();
+    tracer.trace_end(calcs);
 
-    const time_to_init = utils.instrument.duration(init_time, program_start);
-    const time_to_parse = utils.instrument.duration(parse_time, init_time);
-    const time_to_haversine = utils.instrument.duration(haversine_time, parse_time);
-    const total_time = utils.instrument.duration(full_time, program_start);
+    json.deinit();
 
     std.debug.print("Parsed JSON haversine result: {d}\n", .{average});
 
@@ -142,20 +145,13 @@ pub fn main() !void {
         std.debug.print("Number of points with different distances: {d}\n", .{num_different_points});
     }
 
-    std.debug.print("\n", .{});
-
-    std.debug.print("Total Time: {d:.3}ms. (CPU Frequency: {d})\n", .{ total_time * 1000.0, utils.instrument.calibrated_cpu_frequency });
-    std.debug.print("\tTime to init: {d:.3}ms  ({d:.2}%)\n", .{ time_to_init * 1000.0, time_to_init * 100.0 / total_time });
-    std.debug.print("\tTime to parse json: {d:.3}ms ({d:.2})%\n", .{ time_to_parse * 1000.0, time_to_parse * 100.0 / total_time });
-    std.debug.print("\tTime to calculate haversine: {d:.3}ms ({d:.2}%)\n", .{ time_to_haversine * 1000.0, time_to_haversine * 100.0 / total_time });
-    const printing = rdtsc();
-    const printing_time = utils.instrument.duration(printing, full_time);
-    std.debug.print("\tTime to print times: {d:.3}ms\n", .{printing_time * 1000.0});
+    tracer.tracer_finish();
+    tracer.tracer_print_stderr();
 }
 
 const JSON = @import("utils").json;
 const utils = @import("utils");
-const rdtsc = utils.instrument.rdtsc;
+const tracer = @import("tracer");
 const std = @import("std");
 const defines = @import("defines.zig");
 const PointPair = defines.PointPair;

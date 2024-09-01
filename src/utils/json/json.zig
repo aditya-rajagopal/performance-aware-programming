@@ -20,9 +20,13 @@ pub fn deinit(self: *JSON) void {
 }
 
 pub fn parse_file(file_name: []const u8, allocator: std.mem.Allocator, expected_capacity: usize) Parser.ParserError!JSON {
+    var p = tracer.trace(@src().fn_name, "read file");
     var parser = try Parser.init(file_name, allocator, expected_capacity);
+    tracer.trace_end(p);
 
+    p = tracer.trace(@src().fn_name, "parse");
     try parser.parse();
+    tracer.trace_end(p);
 
     const json = JSON{
         .extra_data = try parser.extra_data.toOwnedSlice(),
@@ -39,7 +43,9 @@ pub fn parse_file(file_name: []const u8, allocator: std.mem.Allocator, expected_
 pub fn parse_slice(source: []u8, allocator: std.mem.Allocator, expected_capacity: usize) Parser.ParserError!JSON {
     var parser = try Parser.initSlice(source, allocator, expected_capacity);
 
+    const p = tracer.trace(@src().fn_name, "JSON parse");
     try parser.parse();
+    tracer.trace_end(p);
 
     const json = JSON{
         .extra_data = try parser.extra_data.toOwnedSlice(),
@@ -399,6 +405,7 @@ test "JSON and struct with default parameter value" {
 }
 
 const std = @import("std");
+const tracer = @import("tracer");
 const testing = std.testing;
 const Parser = @import("parser.zig");
 const Allocator = std.mem.Allocator;
