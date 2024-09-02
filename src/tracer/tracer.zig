@@ -2,8 +2,6 @@ pub const tsc = @import("tsc.zig");
 const root = @import("root");
 
 const TracerInfo = struct {
-    // fn_name: []const u8,
-    // line: u32 = 0,
     hit_count: u32 = 0,
     scope_time_exclusive: u64 = 0,
     scope_time_inclusive: u64 = 0,
@@ -33,26 +31,7 @@ else
         anchor5,
         anchor6,
         anchor7,
-        anchor8,
-        anchor9,
     };
-
-// fn GenerateAnchors(
-//     comptime E: type,
-//     comptime Data: type,
-//     comptime default: ?Data,
-//     comptime max_unused_slots: comptime_int,
-//     init_values: std.enums.EnumFieldStruct(E, Data, default),
-// ) [std.enums.directEnumArrayLen(E, max_unused_slots)]Data {
-//     @setEvalBranchQuota(200000);
-//     return std.enums.directEnumArrayDefault(
-//         E,
-//         Data,
-//         default,
-//         max_unused_slots,
-//         init_values,
-//     );
-// }
 
 pub fn directEnumArrayDefault(
     comptime E: type,
@@ -61,6 +40,7 @@ pub fn directEnumArrayDefault(
     comptime max_unused_slots: comptime_int,
     init_values: std.enums.EnumFieldStruct(E, Data, default),
 ) [std.enums.directEnumArrayLen(E, max_unused_slots) + 1]Data {
+    @setEvalBranchQuota(200000);
     const len = comptime std.enums.directEnumArrayLen(E, max_unused_slots) + 1;
     var result: [len]Data = if (default) |d| [_]Data{d} ** len else undefined;
     inline for (@typeInfo(@TypeOf(init_values)).Struct.fields) |f| {
@@ -80,18 +60,6 @@ var tracer_anchors = directEnumArrayDefault(
 );
 
 var current_parent: usize = 0;
-
-// var trace_stack: [1024]u16 = undefined;
-// var trace_stack_ptr: u16 = 0;
-
-// var trace_count = GenerateAnchors(
-//     TracerAnchors,
-//     u8,
-//     0,
-//     @typeInfo(TracerAnchors).Enum.fields.len,
-//     .{},
-// );
-
 var is_initialized: bool = false;
 var cpu_frequency: f64 = 0;
 var TracerStart: u64 = 0;
@@ -100,9 +68,6 @@ var TracerEnd: u64 = 0;
 const root_node: usize = 0;
 
 pub fn tracer_initialize(calibrate_time_ms: u64) !void {
-    // if (!options.enabled) {
-    //     return;
-    // }
     if (is_initialized) {
         std.log.err("Trying to reinitialize Tracer\n", .{});
         return;
@@ -113,13 +78,10 @@ pub fn tracer_initialize(calibrate_time_ms: u64) !void {
 }
 
 pub fn tracer_finish() void {
-    if (!options.enabled) {
-        return;
-    }
     TracerEnd = tsc.rdtsc();
 }
 
-pub fn trace(comptime fn_name: []const u8, comptime E: TracerAnchors) type {
+pub fn trace(comptime E: TracerAnchors) type {
     if (!options.enabled) {
         return struct {
             pub fn start() @This() {
@@ -132,7 +94,6 @@ pub fn trace(comptime fn_name: []const u8, comptime E: TracerAnchors) type {
         };
     }
     const position = @intFromEnum(E) + 1;
-    _ = fn_name;
     return struct {
         start_time: u64,
         inlcusive: u64,
@@ -151,8 +112,8 @@ pub fn trace(comptime fn_name: []const u8, comptime E: TracerAnchors) type {
         pub fn end(self: Self) void {
             const elapsed_time = tsc.rdtsc() - self.start_time;
             tracer_anchors[position].hit_count += 1;
-            tracer_anchors[position].scope_time_exclusive += elapsed_time;
-            tracer_anchors[self.parent].scope_time_exclusive -= elapsed_time;
+            tracer_anchors[position].scope_time_exclusive +%= elapsed_time;
+            tracer_anchors[self.parent].scope_time_exclusive -%= elapsed_time;
             tracer_anchors[position].scope_time_inclusive = self.inlcusive + elapsed_time;
 
             current_parent = self.parent;
@@ -161,9 +122,6 @@ pub fn trace(comptime fn_name: []const u8, comptime E: TracerAnchors) type {
 }
 
 pub fn tracer_print_stderr() void {
-    if (!options.enabled) {
-        return;
-    }
     if (!is_initialized) {
         std.log.err("Priting tracer without initializing it\n", .{});
         return;
@@ -171,18 +129,19 @@ pub fn tracer_print_stderr() void {
     const full_time = duration_ms(TracerEnd, TracerStart);
     std.debug.print("Total time: {d:.6} (CPU freq {d})\n", .{ full_time, cpu_frequency });
     inline for (@typeInfo(TracerAnchors).Enum.fields) |field| {
-        // for (1..slice.len) |pos| {
         const info = tracer_anchors[field.value + 1];
         const mark_time = to_ms(info.scope_time_exclusive);
-        std.debug.print("\t{s}[{d}]\n", .{ field.name, info.hit_count });
-        std.debug.print(
-            "\t\t{d:.6} ({d:.2}%)\t{d:.6}ms/hit\n",
-            .{ mark_time, mark_time * 100.0 / full_time, mark_time / @as(f64, @floatFromInt(info.hit_count)) },
-        );
+        if (mark_time != 0) {
+            std.debug.print("\t{s}[{d}]\n", .{ field.name, info.hit_count });
+            std.debug.print(
+                "\t\t{d:.6} ({d:.2}%)\t{d:.6}ms/hit\n",
+                .{ mark_time, mark_time * 100.0 / full_time, mark_time / @as(f64, @floatFromInt(info.hit_count)) },
+            );
 
-        if (info.scope_time_inclusive != info.scope_time_exclusive) {
-            const child_time = to_ms(info.scope_time_inclusive);
-            std.debug.print("\t\t( {d:.6} ({d:.2}%) with children)\n", .{ child_time, child_time * 100.0 / full_time });
+            if (info.scope_time_inclusive != info.scope_time_exclusive) {
+                const child_time = to_ms(info.scope_time_inclusive);
+                std.debug.print("\t\t( {d:.6} ({d:.2}%) with children)\n", .{ child_time, child_time * 100.0 / full_time });
+            }
         }
     }
 }
@@ -209,25 +168,11 @@ pub fn to_ms(time_counter: u64) f64 {
 test "Tracer" {
     try tracer_initialize(50);
 
-    // const t = trace(
-    //     @src().fn_name,
-    //     null,
-    // );
-    // tsc.sleep(100);
-    // trace_end(t);
-    //
-    // const t2 = trace(@src().fn_name, "Second Timer");
-    // tsc.sleep(200);
-    // trace_end(t2);
-    //
-    // tracer_finish();
-    // tracer_print_stderr();
-
-    var v = trace(@src().fn_name, .anchor1).start();
+    var v = trace(.anchor1).start();
     tsc.sleep(100);
     v.end();
 
-    v = trace(@src().fn_name, .anchor1).start();
+    v = trace(.anchor1).start();
     tsc.sleep(200);
     v.end();
 

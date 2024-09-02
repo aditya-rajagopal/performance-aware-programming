@@ -20,11 +20,11 @@ pub fn deinit(self: *JSON) void {
 }
 
 pub fn parse_file(file_name: []const u8, allocator: std.mem.Allocator, expected_capacity: usize) Parser.ParserError!JSON {
-    var p = tracer.trace(@src().fn_name, .json_parse_read_file).start();
+    var p = tracer.trace(.json_parse_read_file).start();
     var parser = try Parser.init(file_name, allocator, expected_capacity);
     p.end();
 
-    var p2 = tracer.trace(@src().fn_name, .json_parse).start();
+    var p2 = tracer.trace(.json_parse).start();
     try parser.parse();
     p2.end();
 

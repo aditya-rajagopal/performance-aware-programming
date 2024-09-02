@@ -26,9 +26,6 @@ pub const TracerAnchors = enum {
 // };
 
 pub fn main() !void {
-    // var start = try std.time.Timer.start();
-    // var parts = try std.time.Timer.start();
-
     std.debug.print("{any}\n", .{tracer.TracerAnchors});
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     const gpa_allocator = gpa.allocator();
@@ -43,8 +40,7 @@ pub fn main() !void {
 
     try tracer.tracer_initialize(50);
 
-    // const start = tracer.tsc.rdtsc();
-    const init = tracer.trace(@src().fn_name, .init).start();
+    const init = tracer.trace(.init).start();
 
     var args = try std.process.argsWithAllocator(gpa_allocator);
     defer args.deinit();
@@ -90,15 +86,14 @@ pub fn main() !void {
     var binary_data: []const u8 = undefined;
     const data_file_name = args.next();
 
-    _ = try allocator.alloc(u8, num_points * 50 * 30);
-    _ = arena.reset(.retain_capacity);
+    // _ = try allocator.alloc(u8, num_points * 50 * 30);
+    // _ = arena.reset(.retain_capacity);
 
     init.end();
 
-    const data_file_read = tracer.trace(@src().fn_name, .file_read).start();
+    const data_file_read = tracer.trace(.file_read).start();
     if (data_file_name) |file| {
         binary_data = try std.fs.cwd().readFileAlloc(allocator, file, 5e9);
-        // std.debug.print("Read binary file of: {d} bytes\n", .{binary_data.len});
         have_data_file = true;
     }
     data_file_read.end();
@@ -120,7 +115,7 @@ pub fn main() !void {
         .{ json.strings.len, json.nodes.len, json.extra_data.len },
     );
 
-    const query_array = tracer.trace(@src().fn_name, .query).start();
+    const query_array = tracer.trace(.query).start();
     const array_nodes: JSON.Node.Array = try json.query_expect(JSON.Node.Array, "pairs", JSON.root_node);
     query_array.end();
 
@@ -129,7 +124,7 @@ pub fn main() !void {
     var num_different_points: usize = 0;
     var index: usize = 0;
 
-    const calcs = tracer.trace(@src().fn_name, .haversine_parse).start();
+    const calcs = tracer.trace(.haversine_parse).start();
     for (array_nodes) |node| {
         const p: PointPair = try json.query_struct(PointPair, node);
         const result = ReferenceHaversine(p.x0, p.y0, p.x1, p.y1, defines.EARTH_RADIUS);
@@ -162,8 +157,6 @@ pub fn main() !void {
         std.debug.print("Number of points with different distances: {d}\n", .{num_different_points});
     }
 
-    // const end = tracer.tsc.rdtsc();
-    // std.debug.print("Total time: {d}ms", .{tracer.duration_ms(end, start)});
     tracer.tracer_finish();
     tracer.tracer_print_stderr();
 }
