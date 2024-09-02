@@ -173,6 +173,7 @@ fn add_extra(self: *Parser, data: anytype) std.mem.Allocator.Error!JSON.NodeInde
     return result;
 }
 
+// NOTE: This is the bottleneck
 fn get_next_token(self: *Parser) !Token {
     // const p = tracer.trace(@src().fn_name, .json_token).start();
     // defer p.end();
@@ -203,8 +204,8 @@ fn get_next_token(self: *Parser) !Token {
 }
 
 fn parse_expect_object(self: *Parser) ParserError!NodeIndex {
-    const p = tracer.trace(@src().fn_name, .json_object).start();
-    defer p.end();
+    // const p = tracer.trace(@src().fn_name, .json_object).start();
+    // defer p.end();
     const start = self.scratch_space.items.len;
     defer self.scratch_space.shrinkRetainingCapacity(start);
 
@@ -227,8 +228,8 @@ fn parse_expect_object(self: *Parser) ParserError!NodeIndex {
 }
 
 fn parse_expect_entry(self: *Parser) ParserError!NodeIndex {
-    const p = tracer.trace(@src().fn_name, .json_entry).start();
-    defer p.end();
+    // const p = tracer.trace(@src().fn_name, .json_entry).start();
+    // defer p.end();
     const key = try self.expect_consume_token(.STRING);
     const entry_key = try self.parse_exect_string_value(key);
     _ = try self.expect_consume_token(.COLON);

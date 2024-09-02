@@ -175,7 +175,10 @@ pub fn tracer_print_stderr() void {
         const info = tracer_anchors[field.value + 1];
         const mark_time = to_ms(info.scope_time_exclusive);
         std.debug.print("\t{s}[{d}]\n", .{ field.name, info.hit_count });
-        std.debug.print("\t\t{d:.6} ({d:.2}%)\n", .{ mark_time, mark_time * 100.0 / full_time });
+        std.debug.print(
+            "\t\t{d:.6} ({d:.2}%)\t{d:.6}ms/hit\n",
+            .{ mark_time, mark_time * 100.0 / full_time, mark_time / @as(f64, @floatFromInt(info.hit_count)) },
+        );
 
         if (info.scope_time_inclusive != info.scope_time_exclusive) {
             const child_time = to_ms(info.scope_time_inclusive);
