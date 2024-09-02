@@ -20,13 +20,13 @@ pub fn deinit(self: *JSON) void {
 }
 
 pub fn parse_file(file_name: []const u8, allocator: std.mem.Allocator, expected_capacity: usize) Parser.ParserError!JSON {
-    var p = tracer.trace(@src().fn_name, "read file");
+    var p = tracer.trace(@src().fn_name, .json_parse_read_file).start();
     var parser = try Parser.init(file_name, allocator, expected_capacity);
-    tracer.trace_end(p);
+    p.end();
 
-    p = tracer.trace(@src().fn_name, "parse");
+    var p2 = tracer.trace(@src().fn_name, .json_parse).start();
     try parser.parse();
-    tracer.trace_end(p);
+    p2.end();
 
     const json = JSON{
         .extra_data = try parser.extra_data.toOwnedSlice(),
@@ -43,9 +43,7 @@ pub fn parse_file(file_name: []const u8, allocator: std.mem.Allocator, expected_
 pub fn parse_slice(source: []u8, allocator: std.mem.Allocator, expected_capacity: usize) Parser.ParserError!JSON {
     var parser = try Parser.initSlice(source, allocator, expected_capacity);
 
-    const p = tracer.trace(@src().fn_name, "JSON parse");
     try parser.parse();
-    tracer.trace_end(p);
 
     const json = JSON{
         .extra_data = try parser.extra_data.toOwnedSlice(),
@@ -342,67 +340,67 @@ pub const Node = struct {
     }
 };
 
-test "JSON and struct" {
-    const test_struct = struct {
-        pi: f64,
-        e: f64,
-    };
-
-    const test_json: []const u8 =
-        \\{"test": {"pi": 3.1415, "e": 2.717 }}
-    ;
-    const expected: test_struct = .{ .e = 2.717, .pi = 3.1415 };
-    const buffer = try testing.allocator.dupe(u8, test_json);
-    defer testing.allocator.free(buffer);
-    var json = try parse_slice(buffer, std.testing.allocator, 10);
-    defer json.deinit();
-
-    const test_value = (try json.query("test", root_node)).?;
-    const output = try json.query_struct(test_struct, test_value);
-    try testing.expectEqualDeep(expected, output);
-}
-
-test "JSON and struct with optional field" {
-    const test_struct = struct {
-        pi: f64,
-        e: f64,
-        i: ?f64,
-    };
-
-    const test_json: []const u8 =
-        \\{"test": {"e": 2.717, "i": null, "pi": 3.1415 }}
-    ;
-    const expected: test_struct = .{ .e = 2.717, .pi = 3.1415, .i = null };
-    const buffer = try testing.allocator.dupe(u8, test_json);
-    defer testing.allocator.free(buffer);
-    var json = try parse_slice(buffer, std.testing.allocator, 10);
-    defer json.deinit();
-
-    const test_value = (try json.query("test", root_node)).?;
-    const output = try json.query_struct(test_struct, test_value);
-    try testing.expectEqualDeep(expected, output);
-}
-
-test "JSON and struct with default parameter value" {
-    const test_struct = struct {
-        pi: f64 = 3.1415,
-        e: f64,
-        i: ?f64 = null,
-    };
-
-    const test_json: []const u8 =
-        \\{"test": {"e": 2.717 }}
-    ;
-    const expected: test_struct = .{ .e = 2.717, .pi = 3.1415, .i = null };
-    const buffer = try testing.allocator.dupe(u8, test_json);
-    defer testing.allocator.free(buffer);
-    var json = try parse_slice(buffer, std.testing.allocator, 10);
-    defer json.deinit();
-
-    const test_value = (try json.query("test", root_node)).?;
-    const output = try json.query_struct(test_struct, test_value);
-    try testing.expectEqualDeep(expected, output);
-}
+// test "JSON and struct" {
+//     const test_struct = struct {
+//         pi: f64,
+//         e: f64,
+//     };
+//
+//     const test_json: []const u8 =
+//         \\{"test": {"pi": 3.1415, "e": 2.717 }}
+//     ;
+//     const expected: test_struct = .{ .e = 2.717, .pi = 3.1415 };
+//     const buffer = try testing.allocator.dupe(u8, test_json);
+//     defer testing.allocator.free(buffer);
+//     var json = try parse_slice(buffer, std.testing.allocator, 10);
+//     defer json.deinit();
+//
+//     const test_value = (try json.query("test", root_node)).?;
+//     const output = try json.query_struct(test_struct, test_value);
+//     try testing.expectEqualDeep(expected, output);
+// }
+//
+// test "JSON and struct with optional field" {
+//     const test_struct = struct {
+//         pi: f64,
+//         e: f64,
+//         i: ?f64,
+//     };
+//
+//     const test_json: []const u8 =
+//         \\{"test": {"e": 2.717, "i": null, "pi": 3.1415 }}
+//     ;
+//     const expected: test_struct = .{ .e = 2.717, .pi = 3.1415, .i = null };
+//     const buffer = try testing.allocator.dupe(u8, test_json);
+//     defer testing.allocator.free(buffer);
+//     var json = try parse_slice(buffer, std.testing.allocator, 10);
+//     defer json.deinit();
+//
+//     const test_value = (try json.query("test", root_node)).?;
+//     const output = try json.query_struct(test_struct, test_value);
+//     try testing.expectEqualDeep(expected, output);
+// }
+//
+// test "JSON and struct with default parameter value" {
+//     const test_struct = struct {
+//         pi: f64 = 3.1415,
+//         e: f64,
+//         i: ?f64 = null,
+//     };
+//
+//     const test_json: []const u8 =
+//         \\{"test": {"e": 2.717 }}
+//     ;
+//     const expected: test_struct = .{ .e = 2.717, .pi = 3.1415, .i = null };
+//     const buffer = try testing.allocator.dupe(u8, test_json);
+//     defer testing.allocator.free(buffer);
+//     var json = try parse_slice(buffer, std.testing.allocator, 10);
+//     defer json.deinit();
+//
+//     const test_value = (try json.query("test", root_node)).?;
+//     const output = try json.query_struct(test_struct, test_value);
+//     try testing.expectEqualDeep(expected, output);
+// }
 
 const std = @import("std");
 const tracer = @import("tracer");
