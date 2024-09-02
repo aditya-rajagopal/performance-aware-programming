@@ -17,6 +17,7 @@ pub const options: Options = if (@hasDecl(root, "tracer_options")) root.tracer_o
 
 pub const Options = struct {
     enabled: bool = true,
+    time_fn: *const fn () u64 = tsc.rdtsc,
 };
 
 pub const TracerAnchors: type = if (@hasDecl(root, "TracerAnchors"))
@@ -72,13 +73,13 @@ pub fn tracer_initialize(calibrate_time_ms: u64) !void {
         std.log.err("Trying to reinitialize Tracer\n", .{});
         return;
     }
-    cpu_frequency = tsc.calibrate_frequency(calibrate_time_ms);
-    TracerStart = tsc.rdtsc();
+    cpu_frequency = tsc.calibrate_frequency(calibrate_time_ms, options.time_fn);
+    TracerStart = options.time_fn();
     is_initialized = true;
 }
 
 pub fn tracer_finish() void {
-    TracerEnd = tsc.rdtsc();
+    TracerEnd = options.time_fn();
 }
 
 pub fn trace(comptime E: TracerAnchors) type {
@@ -105,15 +106,17 @@ pub fn trace(comptime E: TracerAnchors) type {
             local.parent = current_parent;
             current_parent = position;
             local.inlcusive = tracer_anchors[position].scope_time_inclusive;
-            local.start_time = tsc.rdtsc();
+            local.start_time = options.time_fn();
             return local;
         }
 
         pub fn end(self: Self) void {
-            const elapsed_time = tsc.rdtsc() - self.start_time;
+            const elapsed_time = options.time_fn() - self.start_time;
+
+            tracer_anchors[self.parent].scope_time_exclusive -%= elapsed_time;
+
             tracer_anchors[position].hit_count += 1;
             tracer_anchors[position].scope_time_exclusive +%= elapsed_time;
-            tracer_anchors[self.parent].scope_time_exclusive -%= elapsed_time;
             tracer_anchors[position].scope_time_inclusive = self.inlcusive + elapsed_time;
 
             current_parent = self.parent;

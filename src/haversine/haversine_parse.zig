@@ -21,12 +21,12 @@ pub const TracerAnchors = enum {
     haversine_parse,
 };
 
-// pub const tracer_options = .{
-//     .enabled = false,
-// };
+pub const tracer_options: tracer.Options = .{
+    .enabled = true,
+    // .time_fn = tracer.tsc.query_performance_counter,
+};
 
 pub fn main() !void {
-    std.debug.print("{any}\n", .{tracer.TracerAnchors});
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     const gpa_allocator = gpa.allocator();
     defer {

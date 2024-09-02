@@ -1,16 +1,16 @@
-fn query_performance_frequency() u64 {
+pub fn query_performance_frequency() u64 {
     var result: LARGE_INTEGER = 0;
     _ = windows.ntdll.RtlQueryPerformanceFrequency(&result);
     return @as(u64, @bitCast(result));
 }
 
-fn query_performance_counter() u64 {
+pub fn query_performance_counter() u64 {
     var result: LARGE_INTEGER = 0;
     _ = windows.ntdll.RtlQueryPerformanceCounter(&result);
     return @as(u64, @bitCast(result));
 }
 
-pub inline fn rdtsc() u64 {
+pub fn rdtsc() u64 {
     var low: u32 = 0;
     var hi: u32 = 0;
 
@@ -30,17 +30,17 @@ pub fn sleep(ms: u64) void {
     while (query_performance_counter() -% start < ticks_to_run) {}
 }
 
-pub fn calibrate_frequency(ms: u64) f64 {
+pub fn calibrate_frequency(ms: u64, time_fn: *const fn () u64) f64 {
     const freq: u64 = query_performance_frequency();
     const ticks_to_run = ms * (freq / 1000);
 
-    const cpu_start = rdtsc();
+    const cpu_start = time_fn();
     const start = query_performance_counter();
 
     while (query_performance_counter() -% start < ticks_to_run) {}
 
     const end = query_performance_counter();
-    const cpu_end = rdtsc();
+    const cpu_end = time_fn();
 
     const cpu_elapsed = cpu_end -% cpu_start;
     const os_elpased = end -% start;
@@ -50,7 +50,7 @@ pub fn calibrate_frequency(ms: u64) f64 {
 }
 
 test rdtsc {
-    _ = calibrate_frequency(50);
+    _ = calibrate_frequency(50, rdtsc);
 }
 
 const std = @import("std");

@@ -228,7 +228,7 @@ fn parse_expect_object(self: *Parser) ParserError!NodeIndex {
 }
 
 fn parse_expect_entry(self: *Parser) ParserError!NodeIndex {
-    // const p = tracer.trace( .json_entry).start();
+    // const p = tracer.trace(.json_entry).start();
     // defer p.end();
     const key = try self.expect_consume_token(.STRING);
     const entry_key = try self.parse_exect_string_value(key);
