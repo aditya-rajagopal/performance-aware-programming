@@ -2,7 +2,8 @@ pub const tsc = @import("tsc.zig");
 const root = @import("root");
 
 const TracerInfo = struct {
-    hit_count: u32 = 0,
+    hit_count: u64 = 0,
+    bytes_read: u64 = 0,
     scope_time_exclusive: u64 = 0,
     scope_time_inclusive: u64 = 0,
 };
@@ -82,7 +83,7 @@ pub fn tracer_finish() void {
     TracerEnd = options.time_fn();
 }
 
-pub fn trace(comptime E: TracerAnchors) type {
+pub fn trace(comptime E: TracerAnchors, comptime bytes: ?usize) type {
     if (!options.enabled) {
         return struct {
             pub fn start() @This() {
@@ -95,33 +96,65 @@ pub fn trace(comptime E: TracerAnchors) type {
         };
     }
     const position = @intFromEnum(E) + 1;
-    return struct {
-        start_time: u64,
-        inlcusive: u64,
-        parent: usize,
+    if (bytes) |b| {
+        return struct {
+            start_time: u64,
+            inlcusive: u64,
+            parent: usize,
 
-        const Self = @This();
-        pub fn start() Self {
-            var local: Self = undefined;
-            local.parent = current_parent;
-            current_parent = position;
-            local.inlcusive = tracer_anchors[position].scope_time_inclusive;
-            local.start_time = options.time_fn();
-            return local;
-        }
+            const Self = @This();
+            pub fn start() Self {
+                var local: Self = undefined;
+                local.parent = current_parent;
+                current_parent = position;
+                local.inlcusive = tracer_anchors[position].scope_time_inclusive;
+                tracer_anchors[position].bytes_read +%= b;
+                local.start_time = options.time_fn();
+                return local;
+            }
 
-        pub fn end(self: Self) void {
-            const elapsed_time = options.time_fn() - self.start_time;
+            pub fn end(self: Self) void {
+                const elapsed_time = options.time_fn() - self.start_time;
 
-            tracer_anchors[self.parent].scope_time_exclusive -%= elapsed_time;
+                tracer_anchors[self.parent].scope_time_exclusive -%= elapsed_time;
 
-            tracer_anchors[position].hit_count += 1;
-            tracer_anchors[position].scope_time_exclusive +%= elapsed_time;
-            tracer_anchors[position].scope_time_inclusive = self.inlcusive + elapsed_time;
+                tracer_anchors[position].hit_count +%= 1;
+                tracer_anchors[position].scope_time_exclusive +%= elapsed_time;
+                tracer_anchors[position].scope_time_inclusive = self.inlcusive +% elapsed_time;
 
-            current_parent = self.parent;
-        }
-    };
+                current_parent = self.parent;
+            }
+        };
+    } else {
+        return struct {
+            start_time: u64,
+            inlcusive: u64,
+            parent: usize,
+
+            const Self = @This();
+            pub fn start(bytes_through: usize) Self {
+                var local: Self = undefined;
+                local.parent = current_parent;
+                current_parent = position;
+                local.inlcusive = tracer_anchors[position].scope_time_inclusive;
+                tracer_anchors[position].bytes_read +%= bytes_through;
+                local.start_time = options.time_fn();
+                return local;
+            }
+
+            pub fn end(self: Self) void {
+                const elapsed_time = options.time_fn() - self.start_time;
+
+                tracer_anchors[self.parent].scope_time_exclusive -%= elapsed_time;
+
+                tracer_anchors[position].hit_count +%= 1;
+                tracer_anchors[position].scope_time_exclusive +%= elapsed_time;
+                tracer_anchors[position].scope_time_inclusive = self.inlcusive +% elapsed_time;
+
+                current_parent = self.parent;
+            }
+        };
+    }
 }
 
 pub fn tracer_print_stderr() void {
@@ -137,13 +170,18 @@ pub fn tracer_print_stderr() void {
         if (mark_time != 0) {
             std.debug.print("\t{s}[{d}]\n", .{ field.name, info.hit_count });
             std.debug.print(
-                "\t\t{d:.6} ({d:.2}%)\t{d:.6}ms/hit\n",
+                "\t\t{d:.6} ms ({d:.2}%)\t{d:.6} ms/hit\n",
                 .{ mark_time, mark_time * 100.0 / full_time, mark_time / @as(f64, @floatFromInt(info.hit_count)) },
             );
 
             if (info.scope_time_inclusive != info.scope_time_exclusive) {
                 const child_time = to_ms(info.scope_time_inclusive);
-                std.debug.print("\t\t( {d:.6} ({d:.2}%) with children)\n", .{ child_time, child_time * 100.0 / full_time });
+                std.debug.print("\t\t( {d:.6} ms ({d:.2}%) with children)\n", .{ child_time, child_time * 100.0 / full_time });
+            }
+            if (info.bytes_read != 0) {
+                const mb = @as(f64, @floatFromInt(info.bytes_read)) / 1024.0 / 1024.0;
+                const gbs = (mb / mark_time) * (1000.0 / 1024.0);
+                std.debug.print("\t\tThroughput: {d:.2}MB ({d:.2} GB/s)\n", .{ mb, gbs });
             }
         }
     }
@@ -171,16 +209,16 @@ pub fn to_ms(time_counter: u64) f64 {
 test "Tracer" {
     try tracer_initialize(50);
 
-    var v = trace(.anchor1).start();
+    var v = trace(.anchor1, 10).start();
     tsc.sleep(100);
     v.end();
 
-    v = trace(.anchor1).start();
+    var v2 = trace(.anchor1, null).start(10);
     tsc.sleep(200);
-    v.end();
+    v2.end();
 
     const anchor = tracer_anchors[@intFromEnum(TracerAnchors.anchor1) + 1];
-    std.debug.print("Anchor1: {d}, {d}", .{ to_ms(anchor.scope_time_exclusive), anchor.hit_count });
+    std.debug.print("Anchor1: {d}, {d}\n", .{ to_ms(anchor.scope_time_exclusive), anchor.hit_count });
 }
 
 const std = @import("std");

@@ -19,12 +19,12 @@ pub fn deinit(self: *JSON) void {
     self.allocator.free(self.extra_data);
 }
 
-pub fn parse_file(file_name: []const u8, allocator: std.mem.Allocator, expected_capacity: usize) Parser.ParserError!JSON {
-    var p = tracer.trace(.json_parse_read_file).start();
+pub fn parse_file(file_name: []const u8, allocator: std.mem.Allocator, expected_capacity: usize, file_size: u64) Parser.ParserError!JSON {
+    var p = tracer.trace(.json_parse_read_file, 0).start();
     var parser = try Parser.init(file_name, allocator, expected_capacity);
     p.end();
 
-    var p2 = tracer.trace(.json_parse).start();
+    var p2 = tracer.trace(.json_parse, null).start(file_size);
     try parser.parse();
     p2.end();
 
@@ -403,7 +403,7 @@ pub const Node = struct {
 // }
 
 const std = @import("std");
-const tracer = @import("tracer");
+const tracer = @import("perf").tracer;
 const testing = std.testing;
 const Parser = @import("parser.zig");
 const Allocator = std.mem.Allocator;

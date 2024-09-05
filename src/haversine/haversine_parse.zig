@@ -18,6 +18,7 @@ pub const TracerAnchors = enum {
     json_entry,
     json_token,
     query,
+    haversine_lookup,
     haversine_parse,
 };
 
@@ -40,7 +41,7 @@ pub fn main() !void {
 
     try tracer.tracer_initialize(50);
 
-    const init = tracer.trace(.init).start();
+    const init = tracer.trace(.init, 0).start();
 
     var args = try std.process.argsWithAllocator(gpa_allocator);
     defer args.deinit();
@@ -91,31 +92,42 @@ pub fn main() !void {
 
     init.end();
 
-    const data_file_read = tracer.trace(.file_read).start();
     if (data_file_name) |file| {
+        const file_ = try std.fs.cwd().openFile(file, .{});
+        const stat = try file_.stat();
+        file_.close();
+        const data_file_read = tracer.trace(.file_read, null).start(stat.size);
         binary_data = try std.fs.cwd().readFileAlloc(allocator, file, 5e9);
         have_data_file = true;
+        data_file_read.end();
     }
-    data_file_read.end();
 
     var json: JSON = undefined;
 
+    const file_ = try std.fs.cwd().openFile(file_name, .{});
+    const stat = try file_.stat();
+    file_.close();
+
     switch (parse_type) {
-        .buffered => json = try JSON.parse_file(file_name, allocator, 50 * num_points),
+        .buffered => json = try JSON.parse_file(file_name, allocator, 50 * num_points, stat.size),
         .file => {
+            var read = tracer.trace(.json_parse_read_file, null).start(stat.size);
             const data = try std.fs.cwd().readFileAlloc(allocator, file_name, 5e9);
+            read.end();
             defer allocator.free(data);
             std.debug.print("Read file of: {d} bytes\n", .{data.len});
+            var parse = tracer.trace(.json_parse, null).start(stat.size);
             json = try JSON.parse_slice(data, allocator, 50 * num_points);
+            parse.end();
         },
     }
 
-    std.debug.print(
-        "JSON: strings: {d}, nodes: {d}, extra_data: {d}\n",
-        .{ json.strings.len, json.nodes.len, json.extra_data.len },
-    );
+    // std.debug.print(
+    //     "JSON: strings: {d}, nodes: {d}, extra_data: {d}\n",
+    //     .{ json.strings.len, json.nodes.len, json.extra_data.len },
+    // );
 
-    const query_array = tracer.trace(.query).start();
+    const query_array = tracer.trace(.query, 0).start();
     const array_nodes: JSON.Node.Array = try json.query_expect(JSON.Node.Array, "pairs", JSON.root_node);
     query_array.end();
 
@@ -124,12 +136,23 @@ pub fn main() !void {
     var num_different_points: usize = 0;
     var index: usize = 0;
 
-    const calcs = tracer.trace(.haversine_parse).start();
-    for (array_nodes) |node| {
-        const p: PointPair = try json.query_struct(PointPair, node);
-        const result = ReferenceHaversine(p.x0, p.y0, p.x1, p.y1, defines.EARTH_RADIUS);
-        average += result;
-        if (have_data_file) {
+    const lookup = tracer.trace(.haversine_lookup, 0).start();
+    const pairs: []PointPair = try allocator.alloc(PointPair, num_points);
+    for (array_nodes, 0..) |node, i| {
+        pairs[i] = try json.query_struct(PointPair, node);
+    }
+    lookup.end();
+
+    const calcs = tracer.trace(.haversine_parse, null).start(num_points * 32);
+    if (have_data_file) {
+        for (pairs) |*pair| {
+            const result = ReferenceHaversine(pair.x0, pair.y0, pair.x1, pair.y1, defines.EARTH_RADIUS);
+            average += result;
+        }
+    } else {
+        for (pairs) |*pair| {
+            const result = ReferenceHaversine(pair.x0, pair.y0, pair.x1, pair.y1, defines.EARTH_RADIUS);
+            average += result;
             const cached_distance = std.mem.bytesAsValue(f64, binary_data[index * 8 ..]);
             const difference = result - cached_distance.*;
             num_different_points += @intFromBool(difference > 0);
@@ -144,7 +167,6 @@ pub fn main() !void {
     if (have_data_file) {
         cached_average = std.mem.bytesAsValue(f64, binary_data[index * 8 ..]).*;
     }
-
     calcs.end();
 
     json.deinit();
@@ -163,7 +185,7 @@ pub fn main() !void {
 
 const JSON = @import("utils").json;
 const utils = @import("utils");
-const tracer = @import("tracer");
+const tracer = @import("perf").tracer;
 const std = @import("std");
 const defines = @import("defines.zig");
 const PointPair = defines.PointPair;

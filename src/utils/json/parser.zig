@@ -1,6 +1,6 @@
 // pub const HaversineParser = @This();
 
-pub const BUFFER_SIZE = 1024000;
+pub const BUFFER_SIZE = 8192 * 2 * 2 * 2;
 pub const INDEX_TYPE = u32;
 pub const MAX_NODE_DATA = std.math.maxInt(INDEX_TYPE);
 
