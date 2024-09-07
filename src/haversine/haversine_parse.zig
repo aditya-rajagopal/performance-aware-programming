@@ -35,7 +35,7 @@ pub fn main() !void {
         if (deinit_code == .leak) @panic("Leaked memory");
     }
 
-    var arena = std.heap.ArenaAllocator.init(gpa_allocator);
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
     const allocator = arena.allocator();
 
@@ -179,8 +179,14 @@ pub fn main() !void {
         std.debug.print("Number of points with different distances: {d}\n", .{num_different_points});
     }
 
+    var stdout = std.io.getStdOut().writer();
+    var stdin = std.io.getStdIn().reader();
+    var buffer: [1024]u8 = undefined;
     tracer.tracer_finish();
     tracer.tracer_print_stderr();
+    try stdout.print("Do you want to Exit? [Y/N] ", .{});
+    const confirmation = try stdin.readUntilDelimiter(&buffer, '\n');
+    _ = confirmation;
 }
 
 const JSON = @import("utils").json;

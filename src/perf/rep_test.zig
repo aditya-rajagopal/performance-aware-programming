@@ -7,6 +7,7 @@ const options: Options = if (@hasDecl(root, "rep_test_options")) root.rep_test_o
 pub const Options = struct {
     /// Can setup a function that returns u64 time stamp counter
     time_fn: *const fn () u64 = tsc.rdtsc,
+    reset_each_iter: bool = false,
 };
 
 pub const RepType = union(enum) {
@@ -15,12 +16,19 @@ pub const RepType = union(enum) {
     fixed_time: f32, // containst the time to spend on the test
 };
 
+// TODO(aditya): Maybe we can have configurable metrics
 pub const MetricsFunction = *const fn (test_times: *Result) f64;
+
 pub const TestFn = *const fn (*Ctx) anyerror!void;
+pub const TestConfig = struct {
+    reset_each_iter: bool = options.reset_each_iter,
+    mode: RepType,
+    // metrics: []MetricsFunction
+};
 pub const TestCase = struct {
     name: []const u8,
     function: TestFn,
-    mode: RepType,
+    config: TestConfig,
 };
 
 pub const TestCases: []const TestCase = if (@hasDecl(root, "rep_test_cases"))
@@ -44,6 +52,7 @@ pub const Ctx = struct {
 
     test_min_check_time: u64 = 0,
     mode: RepType,
+    reset_each_iter: bool,
 
     num_blk_started: u32 = 0,
     num_blk_ended: u32 = 0,
@@ -60,15 +69,17 @@ pub const Ctx = struct {
     };
 
     pub fn reset(self: *Ctx) void {
-        self.num_blk_ended = 0;
-        self.num_blk_started = 0;
-        self.bytes_in_run = 0;
+        if (self.reset_each_iter) {
+            self.num_blk_ended = 0;
+            self.num_blk_started = 0;
+            self.bytes_in_run = 0;
 
-        self.result.times = [_]u64{0} ** MAX_TRIES;
-        self.result.num_tries = 0;
-        self.result.min_time = std.math.maxInt(u64) - 1;
-        self.result.max_time = 0;
-        self.result.total_time = 0;
+            self.result.times = [_]u64{0} ** MAX_TRIES;
+            self.result.num_tries = 0;
+            self.result.min_time = std.math.maxInt(u64) - 1;
+            self.result.max_time = 0;
+            self.result.total_time = 0;
+        }
 
         self.test_start_time = options.time_fn();
         self.test_min_check_time = options.time_fn();
@@ -185,7 +196,10 @@ var Tests: [TestCases.len]TestRunner = blk: {
     for (0..runners.len) |i| {
         runners[i].name = TestCases[i].name;
         runners[i].function = TestCases[i].function;
-        runners[i].context = Ctx{ .mode = TestCases[i].mode };
+        runners[i].context = Ctx{
+            .mode = TestCases[i].config.mode,
+            .reset_each_iter = TestCases[i].config.reset_each_iter,
+        };
     }
     break :blk runners;
 };
