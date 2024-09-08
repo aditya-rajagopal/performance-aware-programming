@@ -4,6 +4,8 @@ const MAX_TRIES = 10_000_000;
 
 const options: Options = if (@hasDecl(root, "rep_test_options")) root.rep_test_options else .{};
 
+// TODO(aditya): Maybe we can have configurable metrics
+pub const MetricsFunction = *const fn (test_times: *Result) f64;
 pub const Options = struct {
     /// Can setup a function that returns u64 time stamp counter
     time_fn: *const fn () u64 = tsc.rdtsc,
@@ -16,9 +18,6 @@ pub const RepType = union(enum) {
     min: f32, // contains time to spend before new min candidate
     fixed_time: f32, // containst the time to spend on the test
 };
-
-// TODO(aditya): Maybe we can have configurable metrics
-pub const MetricsFunction = *const fn (test_times: *Result) f64;
 
 pub const TestFn = *const fn (*Ctx) anyerror!void;
 pub const TestConfig = struct {
@@ -45,8 +44,6 @@ pub const ResTypes = enum {
     byte_count,
 };
 
-pub const ResTypesCount = std.enums.directEnumArrayLen(ResTypes, 0);
-
 // fn ResultValue type {
 //     if (options.metrics.len > 0) {
 //         struct {
@@ -61,6 +58,7 @@ pub const ResTypesCount = std.enums.directEnumArrayLen(ResTypes, 0);
 //     }
 // }
 
+pub const ResTypesCount = std.enums.directEnumArrayLen(ResTypes, 0);
 pub const ResultValue = struct {
     Val: [ResTypesCount]u64 = [_]u64{0} ** ResTypesCount,
 };

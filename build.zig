@@ -94,6 +94,42 @@ pub fn build(b: *std.Build) void {
     if (b.args) |args| {
         f_read_cmd.addArgs(args);
     }
+
+    const page_file = b.addExecutable(.{
+        .name = "page_file_test",
+        .root_source_file = b.path("src/moving_data/page_file_test.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
+    page_file.root_module.addImport("utils", utils);
+    page_file.root_module.addImport("perf", perf);
+    b.installArtifact(page_file);
+
+    const page_file_cmd = b.addRunArtifact(page_file);
+    page_file_cmd.step.dependOn(b.getInstallStep());
+
+    if (b.args) |args| {
+        page_file_cmd.addArgs(args);
+    }
+
+    const write_bytes = b.addExecutable(.{
+        .name = "write_bytes_test",
+        .root_source_file = b.path("src/moving_data/write_buffer_test.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
+    write_bytes.root_module.addImport("utils", utils);
+    write_bytes.root_module.addImport("perf", perf);
+    b.installArtifact(write_bytes);
+
+    const write_bytes_cmd = b.addRunArtifact(write_bytes);
+    write_bytes_cmd.step.dependOn(b.getInstallStep());
+
+    if (b.args) |args| {
+        write_bytes_cmd.addArgs(args);
+    }
     // --------------------------------------------------------------------------------------------------------------
     // -------------------------------------------- Steps -----------------------------------------------------------
     // --------------------------------------------------------------------------------------------------------------
@@ -109,6 +145,11 @@ pub fn build(b: *std.Build) void {
     const f_read_step = b.step("f_test", "Repetition testing of file read");
     f_read_step.dependOn(&f_read_cmd.step);
 
+    const page_file_step = b.step("page_file", "Repetition testing of file read");
+    page_file_step.dependOn(&page_file_cmd.step);
+
+    const write_bytes_step = b.step("write_bytes", "Repetition testing of file read");
+    write_bytes_step.dependOn(&write_bytes_cmd.step);
     // --------------------------------------------------------------------------------------------------------------
     // -------------------------------------------- Tests -----------------------------------------------------------
     // --------------------------------------------------------------------------------------------------------------
