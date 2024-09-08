@@ -1,6 +1,6 @@
 pub const rep_test_cases = &[_]rep_test.TestCase{
-    rep_test.TestCase{ .name = "Test", .function = rep_test_func, .config = .{ .mode = .{ .min = 10.0 } } },
     rep_test.TestCase{ .name = "Test Malloc", .function = rep_test_func_malloc, .config = .{ .mode = .{ .min = 10.0 } } },
+    rep_test.TestCase{ .name = "Test", .function = rep_test_func, .config = .{ .mode = .{ .min = 10.0 } } },
 };
 
 pub fn rep_test_func(ctx: *rep_test.Ctx) !void {
@@ -89,6 +89,7 @@ pub fn main() !void {
 
     var data: UserData = .{ .buffer = buffer, .file_name = file_name, .allocator = gpa_allocator };
 
+    rep_test.initialize();
     rep_test.prepare_all(&data, stat.size);
     try rep_test.run_tests();
 }

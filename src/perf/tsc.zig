@@ -1,13 +1,47 @@
+const builtin = @import("builtin");
+
 pub fn query_performance_frequency() u64 {
-    var result: LARGE_INTEGER = 0;
-    _ = windows.ntdll.RtlQueryPerformanceFrequency(&result);
-    return @as(u64, @bitCast(result));
+    if (builtin.os.tag == .windows) {
+        var result: LARGE_INTEGER = 0;
+        _ = windows.ntdll.RtlQueryPerformanceFrequency(&result);
+        return @as(u64, @bitCast(result));
+    }
+
+    @compileError("Platform not supported");
 }
 
 pub fn query_performance_counter() u64 {
-    var result: LARGE_INTEGER = 0;
-    _ = windows.ntdll.RtlQueryPerformanceCounter(&result);
-    return @as(u64, @bitCast(result));
+    if (builtin.os.tag == .windows) {
+        var result: LARGE_INTEGER = 0;
+        _ = windows.ntdll.RtlQueryPerformanceCounter(&result);
+        return @as(u64, @bitCast(result));
+    }
+
+    @compileError("Platform not supported");
+}
+
+pub fn InitializeOSMetrics() windows.HANDLE {
+    if (builtin.os.tag == .windows) {
+        return windows.kernel32.GetCurrentProcess();
+    }
+
+    @compileError("Platform not supported");
+}
+
+pub fn ReadOSPageFaultCount(handle: windows.HANDLE) u64 {
+    if (builtin.os.tag == .windows) {
+        var memory_counters: windows.PROCESS_MEMORY_COUNTERS_EX = std.mem.zeroInit(windows.PROCESS_MEMORY_COUNTERS_EX, .{});
+        memory_counters.cb = @sizeOf(windows.PROCESS_MEMORY_COUNTERS_EX);
+
+        // _ = handle;
+        // const hand = windows.kernel32.GetCurrentProcess();
+        _ = windows.kernel32.K32GetProcessMemoryInfo(handle, @ptrCast(&memory_counters), @sizeOf(windows.PROCESS_MEMORY_COUNTERS_EX));
+
+        const result: u64 = @intCast(memory_counters.PageFaultCount);
+        return result;
+    }
+
+    @compileError("Platform not supported");
 }
 
 pub fn rdtsc() u64 {
