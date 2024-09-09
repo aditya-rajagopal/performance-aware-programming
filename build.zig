@@ -77,7 +77,7 @@ pub fn build(b: *std.Build) void {
             .target = target,
             .optimize = optimize,
         });
-        if (std.mem.eql(u8, "sim", p.exe_name)) {
+        if (std.mem.eql(u8, "sim8086", p.exe_name)) {
             exe.root_module.addImport("sim8086", sim8086);
         }
         exe.root_module.addImport("utils", utils);
