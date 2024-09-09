@@ -33,8 +33,6 @@ pub fn ReadOSPageFaultCount(handle: windows.HANDLE) u64 {
         var memory_counters: windows.PROCESS_MEMORY_COUNTERS_EX = std.mem.zeroInit(windows.PROCESS_MEMORY_COUNTERS_EX, .{});
         memory_counters.cb = @sizeOf(windows.PROCESS_MEMORY_COUNTERS_EX);
 
-        // _ = handle;
-        // const hand = windows.kernel32.GetCurrentProcess();
         _ = windows.kernel32.K32GetProcessMemoryInfo(handle, @ptrCast(&memory_counters), @sizeOf(windows.PROCESS_MEMORY_COUNTERS_EX));
 
         const result: u64 = @intCast(memory_counters.PageFaultCount);
