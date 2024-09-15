@@ -12,6 +12,7 @@ pub const style = enum(u1) {
 pub const TracerAnchors = enum {
     init,
     file_read,
+    json_lexer,
     json_parse_read_file,
     json_parse,
     json_object,
@@ -144,7 +145,7 @@ pub fn main() !void {
     lookup.end();
 
     const calcs = tracer.trace(.haversine_parse, null).start(num_points * 32);
-    if (have_data_file) {
+    if (!have_data_file) {
         for (pairs) |*pair| {
             const result = ReferenceHaversine(pair.x0, pair.y0, pair.x1, pair.y1, defines.EARTH_RADIUS);
             average += result;

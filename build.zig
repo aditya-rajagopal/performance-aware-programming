@@ -45,8 +45,8 @@ pub fn build(b: *std.Build) void {
             .description = "Generate haversine data",
         },
         .{
-            .step = "haversine_parse",
-            .exe_name = "data-gen",
+            .step = "parser",
+            .exe_name = "data-parse",
             .path = "src/haversine/haversine_parse.zig",
             .description = "Parse haversine data",
         },
