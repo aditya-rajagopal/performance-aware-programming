@@ -68,6 +68,12 @@ pub fn build(b: *std.Build) void {
             .path = "src/moving_data/write_buffer_test.zig",
             .description = "Test writing to a newly allocated buffer forward and backward",
         },
+        .{
+            .step = "paging",
+            .exe_name = "paging",
+            .path = "src/moving_data/four_level_paging.zig",
+            .description = "Four level paging test",
+        },
     };
 
     for (packages) |p| {
