@@ -1,6 +1,7 @@
 pub const JsonLexer = @This();
 
 source: []const u8,
+pos: usize = 0,
 current_pos: usize = 0,
 
 pub const Token = struct {
@@ -48,8 +49,8 @@ pub fn init(source: []const u8) !JsonLexer {
 }
 
 pub fn next_token(self: *JsonLexer) Token {
-    const p = tracer.trace(.json_lexer, 1).start();
-    defer p.end();
+    // const p = tracer.trace(.json_lexer, 1).start();
+    // defer p.end();
     const pos = self.eat_till_valid() orelse {
         return .{ .tag = .EOF, .start_pos = 0, .end_pos = self.source.len };
     };
@@ -97,25 +98,20 @@ pub fn next_token(self: *JsonLexer) Token {
 // TODO(aditya): Possible performance bottleneck
 fn eat_number(self: *JsonLexer) ?bool {
     var pos = self.increment_pos() orelse return null;
-    var char = self.source[pos];
     var is_float = false;
-    while (((char >= '0' and char <= '9') or char == '.')) {
-        if (char == '.') {
+    while (((self.source[pos] >= '0' and self.source[pos] <= '9') or self.source[pos] == '.')) {
+        if (self.source[pos] == '.') {
             is_float = true;
         }
         pos = self.increment_pos() orelse return null;
-        char = self.source[pos];
     }
-    if ((char == 'e' or char == 'E')) {
+    if ((self.source[pos] == 'e' or self.source[pos] == 'E')) {
         pos = self.increment_pos() orelse return null;
-        char = self.source[pos];
-        if ((char == '+' or char == '-')) {
+        if ((self.source[pos] == '+' or self.source[pos] == '-')) {
             pos = self.increment_pos() orelse return null;
-            char = self.source[pos];
         }
-        while ((char >= '0' and char <= '9')) {
+        while ((self.source[pos] >= '0' and self.source[pos] <= '9')) {
             pos = self.increment_pos() orelse return null;
-            char = self.source[pos];
         }
     }
 
@@ -125,10 +121,8 @@ fn eat_number(self: *JsonLexer) ?bool {
 
 fn eat_till_delimiter(self: *JsonLexer) ?usize {
     var pos = self.increment_pos() orelse return null;
-    var char = self.source[pos];
-    while ((char != ',' and char != ':' and char != '}' and char != ']' and char != ' ')) {
+    while ((self.source[pos] != ',' and self.source[pos] != ':' and self.source[pos] != '}' and self.source[pos] != ']' and self.source[pos] != ' ')) {
         pos = self.increment_pos() orelse return null;
-        char = self.source[pos];
     }
     self.decrement_pos();
     return pos;
@@ -142,7 +136,7 @@ fn eat_till_scalar(self: *JsonLexer, char: u8) ?usize {
     return pos;
 }
 
-inline fn increment_pos(self: *JsonLexer) ?usize {
+fn increment_pos(self: *JsonLexer) ?usize {
     const value = self.current_pos;
     self.current_pos += 1;
     if (self.current_pos > self.source.len) {
@@ -156,14 +150,11 @@ fn decrement_pos(self: *JsonLexer) void {
 }
 
 fn eat_till_valid(self: *JsonLexer) ?usize {
+    // const p = tracer.trace(.json_lexer, 1).start();
+    // defer p.end();
     var pos = self.increment_pos() orelse return null;
-    if (pos >= self.source.len) {
-        return pos;
-    }
-    var char = self.source[pos];
-    while (char == ' ' or char == '\n' or char == '\t' or char == '\r') {
+    while (self.source[pos] == ' ' or self.source[pos] == '\n' or self.source[pos] == '\t' or self.source[pos] == '\r') {
         pos = self.increment_pos() orelse return null;
-        char = self.source[pos];
     }
     return pos;
 }
