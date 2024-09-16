@@ -76,7 +76,7 @@ pub fn build(b: *std.Build) void {
         },
     };
 
-    for (packages) |p| {
+    inline for (packages) |p| {
         const exe = b.addExecutable(.{
             .name = p.exe_name,
             .root_source_file = b.path(p.path),
@@ -88,6 +88,12 @@ pub fn build(b: *std.Build) void {
         }
         exe.root_module.addImport("utils", utils);
         exe.root_module.addImport("perf", perf);
+
+        // Enable asm
+        // const waf = b.addWriteFiles();
+        // waf.addCopyFileToSource(exe.getEmittedAsm(), p.exe_name ++ ".asm");
+        // waf.step.dependOn(&exe.step);
+        // b.getInstallStep().dependOn(&waf.step);
         b.installArtifact(exe);
         const exe_cmd = b.addRunArtifact(exe);
         exe_cmd.step.dependOn(b.getInstallStep());

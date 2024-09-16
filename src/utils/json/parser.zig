@@ -1,6 +1,6 @@
 // pub const HaversineParser = @This();
 
-pub const BUFFER_SIZE = 8192 * 2 * 2 * 2;
+pub const BUFFER_SIZE = 4096 * 32;
 pub const INDEX_TYPE = u32;
 pub const MAX_NODE_DATA = std.math.maxInt(INDEX_TYPE);
 
@@ -39,7 +39,10 @@ pub fn init(file_name: []const u8, allocator: std.mem.Allocator, expected_capaci
     parser.is_file = true;
 
     parser.reader.unbuffered_reader = parser.file.reader();
+    var p = tracer.trace(.json_parse_read_file, BUFFER_SIZE).start();
     parser.buffer = try allocator.alloc(u8, BUFFER_SIZE);
+    p.end();
+
     parser.buffer_pos = try parser.reader.read(parser.*.buffer);
 
     parser.lexer = try Lexer.init(parser.buffer[0..parser.buffer_pos]);
@@ -181,6 +184,7 @@ fn get_next_token(self: *Parser) !Token {
     var current_token = self.next_token;
 
     if (self.is_file and current_token.tag == .EOF and !self.is_done) {
+        var p = tracer.trace(.json_parse_read_file, BUFFER_SIZE).start();
         if (self.buffer_pos != self.next_token.end_pos) {
             const len = self.buffer_pos - self.next_token.end_pos;
             const remaining = self.buffer[self.next_token.end_pos .. self.next_token.end_pos + len];
@@ -189,6 +193,7 @@ fn get_next_token(self: *Parser) !Token {
         } else {
             self.buffer_pos = try self.reader.read(self.buffer);
         }
+        p.end();
         if (self.buffer_pos != 0) {
             self.lexer = try Lexer.init(self.buffer[0..self.buffer_pos]);
             current_token = self.lexer.next_token();
@@ -360,7 +365,7 @@ fn expect_consume_token(self: *Parser, tag: Token.Tag) ParserError!Token {
 
 const Lexer = @import("lexer.zig");
 const JSON = @import("json.zig");
-const tracer = @import("tracer");
+const tracer = @import("perf").tracer;
 const Node = JSON.Node;
 const NodeTag = JSON.Node.Tag;
 const NodeIndex = JSON.NodeIndex;
