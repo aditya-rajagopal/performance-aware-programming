@@ -50,6 +50,7 @@ pub fn init(file_name: []const u8, allocator: std.mem.Allocator, expected_capaci
     parser.next_token = parser.lexer.next_token();
 
     parser.scratch_space = .{};
+    try parser.scratch_space.ensureUnusedCapacity(allocator, @divExact(expected_capacity, 5));
     parser.nodes = .{};
     try parser.nodes.ensureTotalCapacity(allocator, expected_capacity);
     parser.string_store = std.ArrayList(u8).init(allocator);
@@ -76,6 +77,7 @@ pub fn initSlice(slice: []u8, allocator: std.mem.Allocator, expected_capacity: u
     parser.next_token = parser.lexer.next_token();
 
     parser.scratch_space = .{};
+    try parser.scratch_space.ensureUnusedCapacity(allocator, @divExact(expected_capacity, 5));
     parser.nodes = .{};
     try parser.nodes.ensureTotalCapacity(allocator, expected_capacity);
     parser.string_store = std.ArrayList(u8).init(allocator);
@@ -177,13 +179,12 @@ fn add_extra(self: *Parser, data: anytype) std.mem.Allocator.Error!JSON.NodeInde
 }
 
 // NOTE: This is the bottleneck
-fn get_next_token(self: *Parser) !Token {
-    // const p = tracer.trace(.json_token).start();
-    // defer p.end();
-
+inline fn get_next_token(self: *Parser) !Token {
+    // var t = tracer.trace(.json_token, 0).start();
+    // defer t.end();
     var current_token = self.next_token;
 
-    if (self.is_file and current_token.tag == .EOF and !self.is_done) {
+    if (current_token.tag == .EOF and !self.is_done and self.is_file) {
         var p = tracer.trace(.json_parse_read_file, BUFFER_SIZE).start();
         if (self.buffer_pos != self.next_token.end_pos) {
             const len = self.buffer_pos - self.next_token.end_pos;
@@ -204,11 +205,10 @@ fn get_next_token(self: *Parser) !Token {
     } else {
         self.next_token = self.lexer.next_token();
     }
-
     return current_token;
 }
 
-fn parse_expect_object(self: *Parser) ParserError!NodeIndex {
+inline fn parse_expect_object(self: *Parser) ParserError!NodeIndex {
     // const p = tracer.trace( .json_object).start();
     // defer p.end();
     const start = self.scratch_space.items.len;
@@ -232,7 +232,7 @@ fn parse_expect_object(self: *Parser) ParserError!NodeIndex {
     return data_location;
 }
 
-fn parse_expect_entry(self: *Parser) ParserError!NodeIndex {
+inline fn parse_expect_entry(self: *Parser) ParserError!NodeIndex {
     // const p = tracer.trace(.json_entry).start();
     // defer p.end();
     const key = try self.expect_consume_token(.STRING);
@@ -277,50 +277,59 @@ fn parse_exect_string_value(self: *Parser, key: Token) ParserError!Node.String {
 }
 
 fn parse_expect_value(self: *Parser) ParserError!struct { NodeTag, JSON.Node.Data } {
-    const next_token = try self.get_next_token();
+    var next_token = try self.get_next_token();
 
-    switch (next_token.tag) {
-        .LEFT_BRACKET => {
-            const pos = try self.parse_expect_object();
-            return .{ NodeTag.object, @as(u64, @intCast(pos)) };
-        },
-        .LEFT_BRACE => {
-            const pos = try self.parse_expect_array_value();
-            return .{ NodeTag.array, @as(u64, @intCast(pos)) };
-        },
-        .STRING => {
-            const string = try self.parse_exect_string_value(next_token);
-            return .{ NodeTag.string, @as(u64, @bitCast(string)) };
-        },
-        .NUMBER => {
-            const value: f64 = std.fmt.parseFloat(f64, self.buffer[next_token.start_pos..next_token.end_pos]) catch {
+    for (0..2) |i| {
+        switch (next_token.tag) {
+            .LEFT_BRACKET => {
+                const pos = try self.parse_expect_object();
+                return .{ NodeTag.object, @as(u64, @intCast(pos)) };
+            },
+            .LEFT_BRACE => {
+                const pos = try self.parse_expect_array_value();
+                return .{ NodeTag.array, @as(u64, @intCast(pos)) };
+            },
+            .STRING => {
+                const string = try self.parse_exect_string_value(next_token);
+                return .{ NodeTag.string, @as(u64, @bitCast(string)) };
+            },
+            .NUMBER => {
+                const value: f64 = std.fmt.parseFloat(f64, self.buffer[next_token.start_pos..next_token.end_pos]) catch {
+                    return Error.InvalidToken;
+                };
+                return .{ NodeTag.float, @as(u64, @bitCast(value)) };
+            },
+            .INTEGER => {
+                const value: i64 = std.fmt.parseInt(i64, self.buffer[next_token.start_pos..next_token.end_pos], 10) catch {
+                    return Error.InvalidToken;
+                };
+                return .{ NodeTag.integer, @as(u64, @bitCast(value)) };
+            },
+            .TRUE => {
+                return .{ NodeTag.boolean_true, 1 };
+            },
+            .FALSE => {
+                return .{ NodeTag.boolean_false, 0 };
+            },
+            .NULL => {
+                return .{ NodeTag.null, 0 };
+            },
+            .EOF => {
+                // NOTE: If we we get an EoF we try to get the next token again since we might be at a buffer boundry
+                if (i == 0) {
+                    next_token = try self.get_next_token();
+                    continue;
+                }
+                std.debug.print("Expected Value but got EOF: {s}\n", .{next_token});
                 return Error.InvalidToken;
-            };
-            return .{ NodeTag.float, @as(u64, @bitCast(value)) };
-        },
-        .INTEGER => {
-            const value: i64 = std.fmt.parseInt(i64, self.buffer[next_token.start_pos..next_token.end_pos], 10) catch {
+            },
+            .RIGHT_BRACE, .RIGHT_BRACKET, .COLON, .COMMA, .ILLEGAL => {
+                std.debug.print("Invalid Value token: {s}\n", .{next_token});
                 return Error.InvalidToken;
-            };
-            return .{ NodeTag.integer, @as(u64, @bitCast(value)) };
-        },
-        .TRUE => {
-            return .{ NodeTag.boolean_true, 1 };
-        },
-        .FALSE => {
-            return .{ NodeTag.boolean_false, 0 };
-        },
-        .NULL => {
-            return .{ NodeTag.null, 0 };
-        },
-        .EOF => {
-            return self.parse_expect_value();
-        },
-        .RIGHT_BRACE, .RIGHT_BRACKET, .COLON, .COMMA, .ILLEGAL => {
-            std.debug.print("Invalid Value token: {s}\n", .{next_token});
-            return Error.InvalidToken;
-        },
+            },
+        }
     }
+    unreachable;
 }
 
 fn parse_expect_array_value(self: *Parser) ParserError!NodeIndex {
@@ -334,6 +343,7 @@ fn parse_expect_array_value(self: *Parser) ParserError!NodeIndex {
             self.allocator,
             JSON.Node{ .key = [2]NodeIndex{ 0, 0 }, .tag = undefined, .data = undefined },
         );
+
         const tag, const value = try parse_expect_value(self);
 
         const node_slice = self.nodes.slice();
@@ -347,6 +357,7 @@ fn parse_expect_array_value(self: *Parser) ParserError!NodeIndex {
             break;
         }
     }
+
     if (comma.tag != .RIGHT_BRACE) {
         return Error.InvalidToken;
     }

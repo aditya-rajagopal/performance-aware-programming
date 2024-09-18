@@ -1,7 +1,6 @@
 pub const JsonLexer = @This();
 
 source: []const u8,
-pos: usize = 0,
 current_pos: usize = 0,
 
 pub const Token = struct {
@@ -48,7 +47,7 @@ pub fn init(source: []const u8) !JsonLexer {
     };
 }
 
-pub fn next_token(self: *JsonLexer) Token {
+pub inline fn next_token(self: *JsonLexer) Token {
     // const p = tracer.trace(.json_lexer, 1).start();
     // defer p.end();
     const pos = self.eat_till_valid() orelse {
@@ -155,8 +154,6 @@ fn decrement_pos(self: *JsonLexer) void {
 
 fn eat_till_valid(self: *JsonLexer) ?usize {
     @setCold(false);
-    // const p = tracer.trace(.json_lexer, 1).start();
-    // defer p.end();
     var pos = self.increment_pos() orelse return null;
     while (self.source[pos] == ' ' or self.source[pos] == '\n' or self.source[pos] == '\t' or self.source[pos] == '\r') {
         pos = self.increment_pos() orelse return null;
