@@ -57,8 +57,8 @@ pub fn parse_slice(source: []u8, allocator: std.mem.Allocator, expected_capacity
     return json;
 }
 
-pub fn parse_new(source: []u8, allocator: std.mem.Allocator, expected_capacity: usize) !JSON {
-    return ParserN.parse(source, allocator, expected_capacity);
+pub fn parse_new(source: []const u8, allocator: std.mem.Allocator, expected_capacity: usize, comptime config: ParserN.ParserConfig) !JSON {
+    return ParserN.parse(source, allocator, expected_capacity, config);
 }
 
 pub fn query(self: *JSON, key: []const u8, object_location: NodeIndex) Error!?NodeIndex {

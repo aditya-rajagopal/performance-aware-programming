@@ -25,7 +25,8 @@ pub const INDEX_TYPE = u32;
 pub const Parser = @This();
 
 allocator: std.mem.Allocator,
-buffer: []const u8,
+buffer: []u8,
+buffer_len: usize = 0,
 state_stack: [1024]state = [_]state{.unkown} ** 1024,
 extra_data: std.ArrayList(NodeIndex),
 
@@ -37,6 +38,7 @@ string_map: JsonStringMap,
 
 pub const JsonStringMap = std.StringHashMap(JSON.Node.String);
 pub const NodeIndex = u32;
+pub const BufferedReader = std.io.BufferedReader(BUFFER_SIZE, std.fs.File.Reader);
 
 pub const state = union(enum) {
     json_start,
@@ -55,6 +57,9 @@ pub const state = union(enum) {
     true,
     false,
     padding,
+    init_file,
+    buffer_file,
+    error_state,
     unkown,
 };
 
@@ -134,31 +139,97 @@ fn add_extra(self: *Parser, data: anytype) std.mem.Allocator.Error!NodeIndex {
     return result;
 }
 
-fn inc_index(self: *Parser) !usize {
+fn inc_index(self: *Parser, comptime mode: ParserConfig.Mode) !?void {
+    _ = mode;
     self.index += 1;
-    if (self.index >= self.buffer.len) {
-        return ParserError.BufferOverflow;
+    if (self.index >= self.buffer_len) {
+        try self.push_state(.buffer_file);
+        return null;
     }
-    return self.index;
 }
 
-pub fn parse(source: []const u8, allocator: std.mem.Allocator, expected_capacity: usize) !JSON {
+pub const ParserConfig = struct {
+    mode: Mode = .buffer,
+
+    pub const Mode = enum {
+        file,
+        buffer,
+    };
+};
+
+pub fn parse(source_or_file: []const u8, allocator: std.mem.Allocator, expected_capacity: usize, comptime config: ParserConfig) !JSON {
     var nodes = std.MultiArrayList(JSON.Node){};
     try nodes.ensureTotalCapacity(allocator, expected_capacity);
     var scratch_space = try std.ArrayList(NodeIndex).initCapacity(allocator, @divExact(expected_capacity, 5));
     var parser = Parser{
         .allocator = allocator,
-        .buffer = source,
+        .buffer = undefined,
         .string_map = JsonStringMap.init(allocator),
         .extra_data = try std.ArrayList(NodeIndex).initCapacity(allocator, expected_capacity),
     };
+
+    var buffer: if (config.mode == .buffer) []const u8 else []u8 = undefined;
+    if (config.mode == .buffer) {
+        buffer = source_or_file;
+    } else {
+        buffer = (try allocator.alloc(u8, BUFFER_SIZE));
+    }
+    var temp_buffer: []u8 = undefined;
+    if (config.mode == .file) {
+        temp_buffer = (try allocator.alloc(u8, BUFFER_SIZE));
+    }
+
+    if (config.mode == .buffer) {
+        parser.buffer_len = source_or_file.len;
+    }
+
+    var buffered_reader: if (config.mode == .buffer) void else BufferedReader = comptime blk: {
+        if (config.mode == .buffer) {
+            break :blk undefined;
+        } else {
+            const reader: BufferedReader = .{ .unbuffered_reader = undefined };
+
+            break :blk reader;
+        }
+    };
+
     var string_store = std.ArrayList(u8).init(allocator);
     try parser.push_state(.json_start);
+    var json_init: bool = true;
 
-    while (parser.stack_ptr != 0) {
+    outter: while (parser.stack_ptr != 0) {
         switch (parser.current_state()) {
+            .init_file => {
+                if (config.mode != .buffer) {
+                    const file = try std.fs.cwd().openFile(source_or_file, .{});
+                    buffered_reader.unbuffered_reader = file.reader();
+                    parser.buffer_len = try buffered_reader.read(buffer);
+                    _ = parser.pop_state();
+                    // std.debug.print("Data: {s}\n\n", .{buffer[0..parser.buffer_len]});
+                }
+            },
+            .buffer_file => {
+                // var p = tracer.trace(.json_parse_read_file, BUFFER_SIZE).start();
+                if (config.mode != .buffer) {
+                    if (parser.buffer_len != parser.read_head) {
+                        const len = parser.buffer_len - parser.read_head;
+                        const remaining = buffer[parser.read_head..parser.buffer_len];
+                        @memcpy(temp_buffer[0..len], remaining);
+                        @memcpy(buffer[0..len], temp_buffer[0..len]);
+                        parser.buffer_len = try buffered_reader.read(buffer[len..]) + len;
+                    } else {
+                        parser.buffer_len = try buffered_reader.read(buffer);
+                    }
+                    // std.debug.print("Data: {s}\n", .{buffer[0..parser.buffer_len]});
+                    parser.index = 0;
+                    parser.read_head = 0;
+                }
+                _ = parser.pop_state();
+                // p.end();
+            },
             .json_start => {
-                if (parser.index == 0) {
+                if (json_init) {
+                    json_init = false;
                     try nodes.append(allocator, Node{
                         .key = [_]NodeIndex{ 0, 0 },
                         .tag = .object,
@@ -166,6 +237,9 @@ pub fn parse(source: []const u8, allocator: std.mem.Allocator, expected_capacity
                     });
                     try parser.push_state(.object_start);
                     try parser.push_state(.{ .expected_token = '{' });
+                    if (config.mode == .file) {
+                        try parser.push_state(.init_file);
+                    }
                 } else {
                     // We are here because we have finished all the parsing.
                     // const tag: u8 = @truncate(scratch_space[0]);
@@ -183,18 +257,17 @@ pub fn parse(source: []const u8, allocator: std.mem.Allocator, expected_capacity
                 try parser.push_state(.element_start);
             },
             .object_end => |s| {
-                switch (parser.buffer[parser.index]) {
+                switch (buffer[parser.index]) {
                     ' ', '\n', '\t', '\r' => {
-                        // try parser.inc_index();
-                        parser.index += 1;
-                        parser.read_head += 1;
                         try parser.push_state(.padding);
+                        parser.read_head += 1;
+                        try parser.inc_index(config.mode) orelse continue :outter;
                         continue;
                     },
                     ',' => {
-                        parser.index += 1;
-                        parser.read_head += 1;
                         try parser.push_state(.element_start);
+                        parser.read_head += 1;
+                        try parser.inc_index(config.mode) orelse continue :outter;
                         continue;
                     },
                     else => {},
@@ -213,20 +286,23 @@ pub fn parse(source: []const u8, allocator: std.mem.Allocator, expected_capacity
                 try scratch_space.appendSlice(data[0..2]);
             },
             .expected_token => |expected_char| {
-                const current_char = parser.buffer[parser.index];
+                const current_char = buffer[parser.index];
                 switch (current_char) {
                     ' ', '\n', '\t', '\r' => {
-                        parser.index += 1;
                         try parser.push_state(.padding);
+                        parser.read_head += 1;
+                        try parser.inc_index(config.mode) orelse continue :outter;
                         continue;
                     },
                     else => {},
                 }
 
                 if (current_char == expected_char) {
-                    parser.index += 1;
                     _ = parser.pop_state();
+                    parser.read_head += 1;
+                    try parser.inc_index(config.mode) orelse continue :outter;
                 } else {
+                    std.log.err("Data: {s}\n", .{buffer[parser.index..]});
                     std.log.err("Expected {c} but got {c}\n", .{ expected_char, current_char });
                     return ParserError.InvalidJSON;
                 }
@@ -257,32 +333,36 @@ pub fn parse(source: []const u8, allocator: std.mem.Allocator, expected_capacity
                 _ = parser.pop_state();
             },
             .string => {
-                switch (parser.buffer[parser.index]) {
+                // std.debug.print("Stack Trace: {any}\n", .{parser.state_stack[0..parser.stack_ptr]});
+                // std.debug.print("String start: {s}\n", .{buffer[parser.index..]});
+                switch (buffer[parser.index]) {
                     ' ', '\n', '\t', '\r' => {
-                        parser.index += 1;
+                        // std.debug.print("S: Found padding\n", .{});
                         try parser.push_state(.padding);
+                        parser.read_head += 1;
+                        try parser.inc_index(config.mode) orelse continue :outter;
                         continue;
                     },
                     '"' => {
-                        parser.index += 1;
+                        try parser.inc_index(config.mode) orelse continue :outter;
                     },
                     else => {
                         // std.debug.print("Stack Trace: {any}\n", .{parser.state_stack[0..parser.stack_ptr]});
-                        std.log.err("Expected \" but got {c}\n", .{parser.buffer[parser.index]});
+                        std.log.err("Data: {s}\n", .{buffer[parser.index..]});
+                        std.log.err("Expected \" but got {c}\n", .{buffer[parser.index]});
                         return ParserError.InvalidJSON;
                     },
                 }
-
-                _ = parser.pop_state();
+                // std.debug.print("String Actually start: {s}\n", .{buffer[parser.index..]});
 
                 const start_pos = parser.index;
-                while (parser.buffer[parser.index] != '"') {
-                    parser.index += 1;
+                while (buffer[parser.index] != '"') {
+                    try parser.inc_index(config.mode) orelse continue :outter;
                 }
                 const end_pos = parser.index;
-                parser.index += 1;
+                // This might be a problem
 
-                const string = parser.buffer[start_pos..end_pos];
+                const string = buffer[start_pos..end_pos];
                 // std.debug.print("String value: {s}\n", .{string});
                 const value = parser.string_map.get(string);
                 var output: [2]NodeIndex = undefined;
@@ -302,9 +382,14 @@ pub fn parse(source: []const u8, allocator: std.mem.Allocator, expected_capacity
                 }
                 try scratch_space.append(@intFromEnum(Node.Tag.string));
                 try scratch_space.appendSlice(&output);
+
+                _ = parser.pop_state();
+                parser.read_head = parser.index + 1;
+                try parser.inc_index(config.mode) orelse continue :outter;
             },
             .array_start => {
                 // std.debug.print("Array start\n", .{});
+                _ = parser.pop_state();
                 const start: u32 = @intCast(scratch_space.items.len);
                 try parser.push_state(.{ .array_end = start });
                 try parser.push_state(.{ .array_mid = start });
@@ -324,31 +409,34 @@ pub fn parse(source: []const u8, allocator: std.mem.Allocator, expected_capacity
                     try scratch_space.append(pos);
                     parser.state_stack[parser.stack_ptr - 1].array_mid += 1;
                 }
-                switch (parser.buffer[parser.index]) {
+                switch (buffer[parser.index]) {
                     ' ', '\n', '\t', '\r' => {
-                        parser.index += 1;
                         try parser.push_state(.padding);
+                        parser.read_head += 1;
+                        try parser.inc_index(config.mode) orelse continue :outter;
                         continue;
                     },
                     ',' => {
-                        parser.index += 1;
+                        // std.debug.print("Next array element\n", .{});
                         try parser.push_state(.value);
+                        parser.read_head += 1;
+                        try parser.inc_index(config.mode) orelse continue :outter;
                         continue;
                     },
                     ']' => {
-                        parser.index += 1;
+                        parser.read_head += 1;
+                        _ = parser.pop_state();
+                        try parser.inc_index(config.mode) orelse continue :outter;
                     },
                     else => {
-                        std.log.err("Expected a ] but got {s}\n", .{parser.buffer[parser.index..]});
+                        std.log.err("Expected a ] but got {s}\n", .{buffer[parser.index..]});
                         return ParserError.InvalidJSON;
                     },
                 }
-                _ = parser.pop_state();
             },
             .array_end => |s| {
                 // std.debug.print("Array end\n", .{});
 
-                _ = parser.pop_state();
                 _ = parser.pop_state();
 
                 const elements = scratch_space.items[s..];
@@ -363,9 +451,10 @@ pub fn parse(source: []const u8, allocator: std.mem.Allocator, expected_capacity
             },
             .padding => {
                 while (true) {
-                    switch (parser.buffer[parser.index]) {
+                    switch (buffer[parser.index]) {
                         ' ', '\n', '\t', '\r' => {
-                            parser.index += 1;
+                            parser.read_head += 1;
+                            try parser.inc_index(config.mode) orelse continue :outter;
                         },
                         else => {
                             _ = parser.pop_state();
@@ -375,31 +464,43 @@ pub fn parse(source: []const u8, allocator: std.mem.Allocator, expected_capacity
                 }
             },
             .number => {
+                switch (buffer[parser.index]) {
+                    ' ', '\n', '\t', '\r' => {
+                        try parser.push_state(.padding);
+                        parser.read_head += 1;
+                        try parser.inc_index(config.mode) orelse continue :outter;
+                        continue;
+                    },
+                    else => {},
+                }
                 // std.debug.print("Number\n", .{});
                 var is_float = false;
                 // std.debug.print("scratch: {d}\n", .{scratch_space.items});
 
                 const start = parser.index;
-                parser.index += 1;
-                while (((parser.buffer[parser.index] >= '0' and parser.buffer[parser.index] <= '9') or parser.buffer[parser.index] == '.')) {
-                    if (parser.buffer[parser.index] == '.') {
+                try parser.inc_index(config.mode) orelse continue :outter;
+                while (((buffer[parser.index] >= '0' and buffer[parser.index] <= '9') or buffer[parser.index] == '.')) {
+                    if (buffer[parser.index] == '.') {
                         is_float = true;
                     }
-                    parser.index += 1;
+                    try parser.inc_index(config.mode) orelse continue :outter;
                 }
-                if ((parser.buffer[parser.index] == 'e' or parser.buffer[parser.index] == 'E')) {
-                    parser.index += 1;
-                    if ((parser.buffer[parser.index] == '+' or parser.buffer[parser.index] == '-')) {
-                        parser.index += 1;
+                if ((buffer[parser.index] == 'e' or buffer[parser.index] == 'E')) {
+                    try parser.inc_index(config.mode) orelse continue :outter;
+                    if ((buffer[parser.index] == '+' or buffer[parser.index] == '-')) {
+                        try parser.inc_index(config.mode) orelse continue :outter;
                     }
-                    while ((parser.buffer[parser.index] >= '0' and parser.buffer[parser.index] <= '9')) {
-                        parser.index += 1;
+                    while ((buffer[parser.index] >= '0' and buffer[parser.index] <= '9')) {
+                        try parser.inc_index(config.mode) orelse continue :outter;
                     }
                 }
                 const end = parser.index;
-                const value: f64 = std.fmt.parseFloat(f64, parser.buffer[start..end]) catch {
-                    std.debug.print("Test: {s}\n", .{parser.buffer[parser.index..]});
-                    std.log.err("Invalid number: {s}\n", .{parser.buffer[start..end]});
+                parser.read_head = parser.index;
+
+                const value: f64 = std.fmt.parseFloat(f64, buffer[start..end]) catch {
+                    // std.debug.print("Test: {s}\n", .{buffer[parser.index..parser.buffer_len]});
+                    std.log.err("Index: {d}\n", .{parser.index});
+                    std.log.err("Invalid number: {s}\n", .{buffer[start..end]});
                     return ParserError.InvalidJSON;
                 };
                 _ = parser.pop_state();
@@ -409,20 +510,25 @@ pub fn parse(source: []const u8, allocator: std.mem.Allocator, expected_capacity
                 // std.debug.print("scratch: {d}\n", .{scratch_space.items});
             },
             .value => {
-                switch (parser.buffer[parser.index]) {
+                // std.debug.print("Value: {d} {s}\n", .{ parser.index, buffer[parser.index..] });
+                switch (buffer[parser.index]) {
                     ' ', '\n', '\t', '\r' => {
-                        parser.index += 1;
                         try parser.push_state(.padding);
+                        parser.read_head += 1;
+                        try parser.inc_index(config.mode) orelse continue :outter;
                     },
                     '{' => {
                         _ = parser.pop_state();
-                        parser.index += 1;
                         try parser.push_state(.object_start);
+                        parser.read_head += 1;
+                        try parser.inc_index(config.mode) orelse continue :outter;
                     },
                     '[' => {
+                        // std.debug.print("Found array\n", .{});
                         _ = parser.pop_state();
-                        parser.index += 1;
                         try parser.push_state(.array_start);
+                        parser.read_head += 1;
+                        try parser.inc_index(config.mode) orelse continue :outter;
                     },
                     '"' => {
                         _ = parser.pop_state();
@@ -445,7 +551,7 @@ pub fn parse(source: []const u8, allocator: std.mem.Allocator, expected_capacity
                         try parser.push_state(.false);
                     },
                     else => {
-                        std.log.err("Expected a value but got {s}\n", .{parser.buffer[parser.index..]});
+                        std.log.err("Expected a value but got {s}\n", .{buffer[parser.index..]});
                         return ParserError.InvalidJSON;
                     },
                 }
@@ -454,13 +560,14 @@ pub fn parse(source: []const u8, allocator: std.mem.Allocator, expected_capacity
                 const keyword = "null";
                 const start = parser.index;
                 for (keyword) |k| {
-                    if (parser.buffer[parser.index] == k) {
-                        parser.index += 1;
+                    if (buffer[parser.index] == k) {
+                        try parser.inc_index(config.mode) orelse continue :outter;
                     } else {
-                        std.log.err("Invalid keyword: {s}\n", .{parser.buffer[start..]});
+                        std.log.err("Invalid keyword: {s}\n", .{buffer[start..]});
                         return ParserError.InvalidJSON;
                     }
                 }
+                parser.read_head = parser.index;
                 _ = parser.pop_state();
                 const value: u64 = 0;
                 try scratch_space.append(@intFromEnum(Node.Tag.null));
@@ -471,10 +578,10 @@ pub fn parse(source: []const u8, allocator: std.mem.Allocator, expected_capacity
                 const keyword = "true";
                 const start = parser.index;
                 for (keyword) |k| {
-                    if (parser.buffer[parser.index] == k) {
-                        parser.index += 1;
+                    if (buffer[parser.index] == k) {
+                        try parser.inc_index(config.mode) orelse continue :outter;
                     } else {
-                        std.log.err("Invalid keyword: {s}\n", .{parser.buffer[start..]});
+                        std.log.err("Invalid keyword: {s}\n", .{buffer[start..]});
                         return ParserError.InvalidJSON;
                     }
                 }
@@ -489,19 +596,23 @@ pub fn parse(source: []const u8, allocator: std.mem.Allocator, expected_capacity
                 const keyword = "false";
                 const start = parser.index;
                 for (keyword) |k| {
-                    if (parser.buffer[parser.index] == k) {
-                        parser.index += 1;
+                    if (buffer[parser.index] == k) {
+                        try parser.inc_index(config.mode) orelse continue :outter;
                     } else {
-                        std.log.err("Invalid keyword: {s}\n", .{parser.buffer[start..]});
+                        std.log.err("Invalid keyword: {s}\n", .{buffer[start..]});
                         return ParserError.InvalidJSON;
                     }
                 }
                 _ = parser.pop_state();
-                // std.debug.print("parser.index: {s}\n", .{parser.buffer[parser.index..]});
+                // std.debug.print("parser.index: {s}\n", .{buffer[parser.index..]});
                 const value: u64 = 0;
                 try scratch_space.append(@intFromEnum(Node.Tag.boolean_false));
                 const value_arr: [*]u32 = @as([*]u32, @ptrCast(@constCast(&value)));
                 try scratch_space.appendSlice(value_arr[0..2]);
+            },
+            .error_state => {
+                std.log.err("Invalid JSON", .{});
+                return ParserError.InvalidJSON;
             },
             else => {
                 std.log.err("Reached state: {any} {any}\n", .{ parser.stack_ptr, parser.current_state() });
@@ -516,6 +627,10 @@ pub fn parse(source: []const u8, allocator: std.mem.Allocator, expected_capacity
         .nodes = nodes.toOwnedSlice(),
         .allocator = allocator,
     };
+    if (config.mode == .file) {
+        allocator.free(buffer);
+        allocator.free(temp_buffer);
+    }
 
     scratch_space.deinit();
     var key_iter = parser.string_map.keyIterator();
@@ -526,90 +641,6 @@ pub fn parse(source: []const u8, allocator: std.mem.Allocator, expected_capacity
 
     return json;
 }
-
-// pub const Node = struct {
-//     key: String,
-//     tag: Tag,
-//     data: Data,
-//
-//     pub const Value = struct {
-//         tag: Tag,
-//         data: Data,
-//     };
-//
-//     pub const Data = u64;
-//
-//     pub const Float = f64;
-//     pub const Object = []NodeIndex;
-//     pub const Array = []NodeIndex;
-//     pub const String = [2]NodeIndex;
-//     pub const Boolean = bool;
-//     pub const None = void;
-//
-//     pub const Tag = enum(u8) {
-//         /// Extra data array stores [N + 1] elements where
-//         /// N is the value at the index that the data points to
-//         /// N, element1, ..., elementN
-//         /// Value points to location of N
-//         object,
-//         /// bitcast value field to f64
-//         number,
-//         /// Extra data array stores start, end
-//         /// Value points to the location of start
-//         string,
-//         /// Extra data array stores [N + 1] Values
-//         /// N is the value at the index that data points to
-//         /// N, value1, value2, ..., valueN
-//         /// Value field points to location of N
-//         array,
-//         /// Stores nothing
-//         boolean_true,
-//         /// stores nothing
-//         boolean_false,
-//         /// data does not point to anything
-//         null,
-//     };
-//
-//     pub fn format(self: *const Node, comptime _: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
-//         switch (self.tag) {
-//             .number => {
-//                 try writer.print(
-//                     "Node{{" ++ "key:({d}, {d}), tag:{s}, data:{d}" ++ "}}",
-//                     .{
-//                         self.key[0],
-//                         self.key[1],
-//                         @tagName(self.tag),
-//                         @as(f64, @bitCast(self.data)),
-//                     },
-//                 );
-//             },
-//             .string => {
-//                 const data = @as([2]u32, @bitCast(self.data));
-//                 try writer.print(
-//                     "Node{{" ++ "key:({d}, {d}), tag:{s}, data:({d}, {d})" ++ "}}",
-//                     .{
-//                         self.key[0],
-//                         self.key[1],
-//                         @tagName(self.tag),
-//                         data[0],
-//                         data[1],
-//                     },
-//                 );
-//             },
-//             else => {
-//                 try writer.print(
-//                     "Node{{" ++ "key:({d}, {d}), tag:{s}, data:{d}" ++ "}}",
-//                     .{
-//                         self.key[0],
-//                         self.key[1],
-//                         @tagName(self.tag),
-//                         self.data,
-//                     },
-//                 );
-//             },
-//         }
-//     }
-// };
 
 test parse {
     var json = try parse(
@@ -623,7 +654,11 @@ test parse {
         // \\   "test4\" :
         // \\      [1, "two", true, false },
         \\}
-    , std.testing.allocator, 10);
+    , std.testing.allocator, 10, .{});
+    std.debug.print("JSON: {s}\n", .{json});
+    json.deinit();
+    // json = try parse("data_10000000_clustered.json", std.testing.allocator, 10, .{ .mode = .file });
+    json = try parse("data_10_clustered.json", std.testing.allocator, 10, .{ .mode = .file });
     defer json.deinit();
     std.debug.print("JSON: {s}\n", .{json});
 }

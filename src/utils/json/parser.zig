@@ -208,7 +208,7 @@ inline fn get_next_token(self: *Parser) !Token {
     return current_token;
 }
 
-inline fn parse_expect_object(self: *Parser) ParserError!NodeIndex {
+fn parse_expect_object(self: *Parser) ParserError!NodeIndex {
     // const p = tracer.trace( .json_object).start();
     // defer p.end();
     const start = self.scratch_space.items.len;
@@ -258,7 +258,7 @@ inline fn parse_expect_entry(self: *Parser) ParserError!NodeIndex {
     return @intCast(pos);
 }
 
-fn parse_exect_string_value(self: *Parser, key: Token) ParserError!Node.String {
+inline fn parse_exect_string_value(self: *Parser, key: Token) ParserError!Node.String {
     const string = self.buffer[key.start_pos..key.end_pos];
     const value = self.string_map.get(string);
     if (value) |v| {
@@ -366,7 +366,7 @@ fn parse_expect_array_value(self: *Parser) ParserError!NodeIndex {
     return data_location;
 }
 
-fn expect_consume_token(self: *Parser, tag: Token.Tag) ParserError!Token {
+inline fn expect_consume_token(self: *Parser, tag: Token.Tag) ParserError!Token {
     const current_token = try self.get_next_token();
     if (current_token.tag != tag) {
         return Error.InvalidToken;

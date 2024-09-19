@@ -112,13 +112,14 @@ pub fn main() !void {
     switch (parse_type) {
         .buffered => json = try JSON.parse_file(file_name, allocator, 50 * num_points, stat.size),
         .file => {
-            var read = tracer.trace(.json_parse_read_file, null).start(stat.size);
-            const data = try std.fs.cwd().readFileAlloc(allocator, file_name, 5e9);
-            read.end();
-            defer allocator.free(data);
-            std.debug.print("Read file of: {d} bytes\n", .{data.len});
+            // var read = tracer.trace(.json_parse_read_file, null).start(stat.size);
+            // const data = try std.fs.cwd().readFileAlloc(allocator, file_name, 5e9);
+            // read.end();
+            // defer allocator.free(data);
+            // std.debug.print("Read file of: {d} bytes\n", .{data.len});
             var parse = tracer.trace(.json_parse, null).start(stat.size);
-            json = try JSON.parse_new(data, allocator, 50 * num_points);
+            // json = try JSON.parse_new(data, allocator, 50 * num_points);
+            json = try JSON.parse_new(file_name, allocator, 50 * num_points, .{ .mode = .file });
             parse.end();
         },
     }
@@ -127,6 +128,7 @@ pub fn main() !void {
     //     "JSON: strings: {d}, nodes: {d}, extra_data: {d}\n",
     //     .{ json.strings.len, json.nodes.len, json.extra_data.len },
     // );
+    // std.debug.print("JSON: {s}\n", .{json});
 
     const query_array = tracer.trace(.query, 0).start();
     const array_nodes: JSON.Node.Array = try json.query_expect(JSON.Node.Array, "pairs", JSON.root_node);

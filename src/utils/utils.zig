@@ -113,6 +113,7 @@ const std = @import("std");
 
 comptime {
     _ = @import("json/parser.zig");
+    _ = @import("json/parser_new.zig");
     _ = @import("json/lexer.zig");
     _ = @import("json/json.zig");
 }
