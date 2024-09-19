@@ -30,6 +30,7 @@ state_stack: [1024]state = [_]state{.unkown} ** 1024,
 extra_data: std.ArrayList(NodeIndex),
 
 index: usize = 0,
+read_head: usize = 0,
 stack_ptr: usize = 0,
 
 string_map: JsonStringMap,
@@ -57,7 +58,7 @@ pub const state = union(enum) {
     unkown,
 };
 
-const ParserError = error{ MaxDepth, InvalidJSON };
+const ParserError = error{ MaxDepth, InvalidJSON, BufferOverflow };
 
 pub fn push_state(self: *Parser, s: state) !void {
     if (self.stack_ptr > 1024) {
@@ -133,6 +134,14 @@ fn add_extra(self: *Parser, data: anytype) std.mem.Allocator.Error!NodeIndex {
     return result;
 }
 
+fn inc_index(self: *Parser) !usize {
+    self.index += 1;
+    if (self.index >= self.buffer.len) {
+        return ParserError.BufferOverflow;
+    }
+    return self.index;
+}
+
 pub fn parse(source: []const u8, allocator: std.mem.Allocator, expected_capacity: usize) !JSON {
     var nodes = std.MultiArrayList(JSON.Node){};
     try nodes.ensureTotalCapacity(allocator, expected_capacity);
@@ -160,7 +169,6 @@ pub fn parse(source: []const u8, allocator: std.mem.Allocator, expected_capacity
                 } else {
                     // We are here because we have finished all the parsing.
                     // const tag: u8 = @truncate(scratch_space[0]);
-                    // std.debug.print("Scratch space: {d}\n", .{scratch_space.items});
                     const value: u64 = @bitCast(scratch_space.items[1..3].*);
                     nodes.items(.data)[0] = value;
                     _ = parser.pop_state();
@@ -177,12 +185,15 @@ pub fn parse(source: []const u8, allocator: std.mem.Allocator, expected_capacity
             .object_end => |s| {
                 switch (parser.buffer[parser.index]) {
                     ' ', '\n', '\t', '\r' => {
+                        // try parser.inc_index();
                         parser.index += 1;
+                        parser.read_head += 1;
                         try parser.push_state(.padding);
                         continue;
                     },
                     ',' => {
                         parser.index += 1;
+                        parser.read_head += 1;
                         try parser.push_state(.element_start);
                         continue;
                     },
@@ -200,8 +211,6 @@ pub fn parse(source: []const u8, allocator: std.mem.Allocator, expected_capacity
 
                 const data = @as([*]u32, @ptrCast(@constCast(&data_location)));
                 try scratch_space.appendSlice(data[0..2]);
-                // std.debug.print("Stack Trace: {any}\n", .{parser.state_stack[0..parser.stack_ptr]});
-                // std.debug.print("Object written\n", .{});
             },
             .expected_token => |expected_char| {
                 const current_char = parser.buffer[parser.index];
@@ -233,14 +242,14 @@ pub fn parse(source: []const u8, allocator: std.mem.Allocator, expected_capacity
             .element_end => |s| {
                 // std.debug.print("Element end\n", .{});
                 const key: [2]NodeIndex = scratch_space.items[s + 1 ..][0..2].*;
-                const tag: u8 = @truncate(scratch_space.items[s + 3]);
+                const tag: Node.Tag = @enumFromInt(scratch_space.items[s + 3]);
                 const value: u64 = @bitCast(scratch_space.items[s + 4 ..][0..2].*);
                 scratch_space.shrinkRetainingCapacity(s);
 
                 const pos: u32 = @intCast(nodes.len);
                 try nodes.append(allocator, Node{
                     .key = key,
-                    .tag = @enumFromInt(tag),
+                    .tag = tag,
                     .data = value,
                 });
 
@@ -303,14 +312,14 @@ pub fn parse(source: []const u8, allocator: std.mem.Allocator, expected_capacity
             },
             .array_mid => |scratch_len| {
                 if (scratch_len != scratch_space.items.len) {
-                    const tag: u8 = @truncate(scratch_space.items[scratch_len..][0]);
+                    const tag: Node.Tag = @enumFromInt(scratch_space.items[scratch_len..][0]);
                     const value: u64 = @bitCast(scratch_space.items[scratch_len..][1..3].*);
 
                     scratch_space.shrinkRetainingCapacity(scratch_len);
                     const pos: u32 = @intCast(nodes.len);
                     try nodes.append(
                         allocator,
-                        Node{ .key = [2]NodeIndex{ 0, 0 }, .tag = @enumFromInt(tag), .data = value },
+                        Node{ .key = [2]NodeIndex{ 0, 0 }, .tag = tag, .data = value },
                     );
                     try scratch_space.append(pos);
                     parser.state_stack[parser.stack_ptr - 1].array_mid += 1;
@@ -500,23 +509,6 @@ pub fn parse(source: []const u8, allocator: std.mem.Allocator, expected_capacity
             },
         }
     }
-
-    // std.debug.print(
-    //     "Strings: {s}\n",
-    //     .{string_store.items},
-    // );
-    //
-    // for (0..nodes.len) |i| {
-    //     std.debug.print(
-    //         "Node[{d}]: {s}\n",
-    //         .{ i, nodes.get(i) },
-    //     );
-    // }
-    //
-    // std.debug.print(
-    //     "extra data: {d}\n",
-    //     .{parser.extra_data.items},
-    // );
 
     const json = JSON{
         .extra_data = try parser.extra_data.toOwnedSlice(),
