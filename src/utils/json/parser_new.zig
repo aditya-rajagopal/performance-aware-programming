@@ -86,46 +86,42 @@ fn add_extra(self: *Parser, data: anytype) std.mem.Allocator.Error!NodeIndex {
 
     switch (typeinfo) {
         .Int => |i| {
-            _ = i;
-            // comptime comptime_assert(
-            //     i.bits == 64 and i.signedness == .signed,
-            //     "Int written to extra data array must be i64 : got {d}bit {s} integer\n",
-            //     .{ i.bits, @tagName(i.signedness) },
-            // );
+            comptime comptime_assert(
+                i.bits == 64 and i.signedness == .signed,
+                "Int written to extra data array must be i64 : got {d}bit {s} integer\n",
+                .{ i.bits, @tagName(i.signedness) },
+            );
             try self.extra_data.ensureUnusedCapacity(2);
             const ptr = @as([*]u32, @ptrCast(@constCast(&data)));
             data_slice = ptr[0..2];
         },
         .Float => |f| {
-            _ = f;
-            // comptime comptime_assert(
-            //     f.bits == 64,
-            //     "Float written to extra data array must be f64: got f{d}\n",
-            //     .{f.bits},
-            // );
+            comptime comptime_assert(
+                f.bits == 64,
+                "Float written to extra data array must be f64: got f{d}\n",
+                .{f.bits},
+            );
             try self.extra_data.ensureUnusedCapacity(2);
             var float_data: u64 = @bitCast(data);
             const ptr = @as([*]u32, @ptrCast(&float_data));
             data_slice = ptr[0..2];
         },
         .Pointer => |p| {
-            _ = p;
-            // comptime comptime_assert(
-            //     p.size == .Slice and p.child == u32,
-            //     "Pointers of type []u32 are allowed: got {s} of type {any}\n",
-            //     .{ @tagName(p.size), p.child },
-            // );
+            comptime comptime_assert(
+                p.size == .Slice and p.child == u32,
+                "Pointers of type []u32 are allowed: got {s} of type {any}\n",
+                .{ @tagName(p.size), p.child },
+            );
             try self.extra_data.ensureUnusedCapacity(data.len + 1);
             self.extra_data.appendAssumeCapacity(@as(u32, @intCast(data.len)));
             data_slice = data;
         },
         .Array => |a| {
-            _ = a;
-            // comptime comptime_assert(
-            //     a.len == 2 and a.child == u32,
-            //     "Only accpeting [2]u32: got {d}[{any}]",
-            //     .{ a.len, a.child },
-            // );
+            comptime comptime_assert(
+                a.len == 2 and a.child == u32,
+                "Only accpeting [2]u32: got {d}[{any}]",
+                .{ a.len, a.child },
+            );
             self.extra_data.appendAssumeCapacity(2);
             data_slice = &data;
         },
@@ -643,5 +639,5 @@ test parse {
 const std = @import("std");
 const JSON = @import("json.zig");
 const Node = JSON.Node;
-// const comptime_assert = @import("../assert.zig").comptime_assert;
+const comptime_assert = @import("../assert.zig").comptime_assert;
 //
