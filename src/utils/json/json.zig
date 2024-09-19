@@ -57,6 +57,10 @@ pub fn parse_slice(source: []u8, allocator: std.mem.Allocator, expected_capacity
     return json;
 }
 
+pub fn parse_new(source: []u8, allocator: std.mem.Allocator, expected_capacity: usize) !JSON {
+    return ParserN.parse(source, allocator, expected_capacity);
+}
+
 pub fn query(self: *JSON, key: []const u8, object_location: NodeIndex) Error!?NodeIndex {
     const object = self.nodes.get(object_location);
     if (object.tag != .object) {
@@ -328,15 +332,43 @@ pub const Node = struct {
     };
 
     pub fn format(self: *const Node, comptime _: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
-        try writer.print(
-            "Node{{" ++ "key:({d}, {d}), tag:{s}, data:{d}" ++ "}}",
-            .{
-                self.key[0],
-                self.key[1],
-                @tagName(self.tag),
-                self.data,
+        switch (self.tag) {
+            .float => {
+                try writer.print(
+                    "Node{{" ++ "key:({d}, {d}), tag:{s}, data:{d}" ++ "}}",
+                    .{
+                        self.key[0],
+                        self.key[1],
+                        @tagName(self.tag),
+                        @as(f64, @bitCast(self.data)),
+                    },
+                );
             },
-        );
+            .string => {
+                const data = @as([2]u32, @bitCast(self.data));
+                try writer.print(
+                    "Node{{" ++ "key:({d}, {d}), tag:{s}, data:({d}, {d})" ++ "}}",
+                    .{
+                        self.key[0],
+                        self.key[1],
+                        @tagName(self.tag),
+                        data[0],
+                        data[1],
+                    },
+                );
+            },
+            else => {
+                try writer.print(
+                    "Node{{" ++ "key:({d}, {d}), tag:{s}, data:{d}" ++ "}}",
+                    .{
+                        self.key[0],
+                        self.key[1],
+                        @tagName(self.tag),
+                        self.data,
+                    },
+                );
+            },
+        }
     }
 };
 
@@ -406,6 +438,7 @@ const std = @import("std");
 const tracer = @import("perf").tracer;
 const testing = std.testing;
 const Parser = @import("parser.zig");
+const ParserN = @import("parser_new.zig");
 const Allocator = std.mem.Allocator;
 const comptime_assert = @import("../assert.zig").comptime_assert;
 const assert = @import("../assert.zig").assert;

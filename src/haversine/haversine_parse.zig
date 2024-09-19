@@ -118,7 +118,7 @@ pub fn main() !void {
             defer allocator.free(data);
             std.debug.print("Read file of: {d} bytes\n", .{data.len});
             var parse = tracer.trace(.json_parse, null).start(stat.size);
-            json = try JSON.parse_slice(data, allocator, 50 * num_points);
+            json = try JSON.parse_new(data, allocator, 50 * num_points);
             parse.end();
         },
     }
