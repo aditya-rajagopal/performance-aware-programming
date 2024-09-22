@@ -1,3 +1,4 @@
+/// JSON can only have nodes upto 4billion elements. If you need any more ummm... do something different
 pub const JSON = @This();
 strings: []const u8,
 nodes: NodeArray.Slice,
