@@ -120,6 +120,7 @@ pub fn main() !void {
             var parse = tracer.trace(.json_parse, null).start(stat.size);
             // json = try JSON.parse_new(data, allocator, 50 * num_points);
             json = try JSON.parse_new(file_name, allocator, 50 * num_points, .{ .mode = .file });
+            // json = try @call(.never_inline, JSON.parse_new, .{});
             parse.end();
         },
     }
@@ -171,8 +172,7 @@ pub fn main() !void {
         cached_average = std.mem.bytesAsValue(f64, binary_data[index * 8 ..]).*;
     }
     calcs.end();
-
-    json.deinit();
+    tracer.tracer_finish();
 
     std.debug.print("Parsed JSON haversine result: {d}\n", .{average});
 
@@ -185,8 +185,13 @@ pub fn main() !void {
     var stdout = std.io.getStdOut().writer();
     var stdin = std.io.getStdIn().reader();
     var buffer: [1024]u8 = undefined;
-    tracer.tracer_finish();
     tracer.tracer_print_stderr();
+
+    const file_size: f64 = @as(f64, @floatFromInt(stat.size)) / (1024.0 * 1024.0);
+    const struct_size: f64 = @as(f64, @floatFromInt(json.get_storage_size())) / (1024.0 * 1024.0);
+    std.debug.print("Size of JSON file: {d:.3} Mb\nSize of JSON storage: {d:.3} Mb\n", .{ file_size, struct_size });
+    json.deinit();
+
     try stdout.print("Do you want to Exit? [Y/N] ", .{});
     const confirmation = try stdin.readUntilDelimiter(&buffer, '\n');
     _ = confirmation;

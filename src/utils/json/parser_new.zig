@@ -160,7 +160,7 @@ pub const ParserConfig = struct {
 pub fn parse(source_or_file: []const u8, allocator: std.mem.Allocator, expected_capacity: usize, comptime config: ParserConfig) !JSON {
     var nodes = std.MultiArrayList(JSON.Node){};
     try nodes.ensureTotalCapacity(allocator, expected_capacity);
-    var scratch_space = try std.ArrayList(NodeIndex).initCapacity(allocator, @divExact(expected_capacity, 5));
+    var scratch_space = try std.ArrayList(NodeIndex).initCapacity(allocator, @divExact(expected_capacity, 1));
     var parser = Parser{
         .allocator = allocator,
         .buffer = undefined,
@@ -196,7 +196,6 @@ pub fn parse(source_or_file: []const u8, allocator: std.mem.Allocator, expected_
     var string_store = std.ArrayList(u8).init(allocator);
     try parser.push_state(.json_start);
     var json_init: bool = true;
-
     outter: while (parser.stack_ptr != 0) {
         switch (parser.current_state()) {
             .init_file => {
@@ -209,23 +208,23 @@ pub fn parse(source_or_file: []const u8, allocator: std.mem.Allocator, expected_
                 }
             },
             .buffer_file => {
-                // var p = tracer.trace(.json_parse_read_file, BUFFER_SIZE).start();
+                var p = tracer.trace(.json_parse_read_file, BUFFER_SIZE).start();
                 if (config.mode != .buffer) {
                     if (parser.buffer_len != parser.read_head) {
                         const len = parser.buffer_len - parser.read_head;
                         const remaining = buffer[parser.read_head..parser.buffer_len];
                         @memcpy(temp_buffer[0..len], remaining);
                         @memcpy(buffer[0..len], temp_buffer[0..len]);
+                        // @memcpy(buffer[0..len], remaining);
                         parser.buffer_len = try buffered_reader.read(buffer[len..]) + len;
                     } else {
                         parser.buffer_len = try buffered_reader.read(buffer);
                     }
-                    // std.debug.print("Data: {s}\n", .{buffer[0..parser.buffer_len]});
                     parser.index = 0;
                     parser.read_head = 0;
                 }
                 _ = parser.pop_state();
-                // p.end();
+                p.end();
             },
             .json_start => {
                 if (json_init) {
@@ -335,6 +334,19 @@ pub fn parse(source_or_file: []const u8, allocator: std.mem.Allocator, expected_
             .string => {
                 // std.debug.print("Stack Trace: {any}\n", .{parser.state_stack[0..parser.stack_ptr]});
                 // std.debug.print("String start: {s}\n", .{buffer[parser.index..]});
+
+                // if (buffer[parser.index] == ' ' or buffer[parser.index] == '\n' or buffer[parser.index] == '\t' or buffer[parser.index] == '\r') {
+                //     try parser.push_state(.padding);
+                //     parser.read_head += 1;
+                //     try parser.inc_index(config.mode) orelse continue :outter;
+                //     continue;
+                // } else if (buffer[parser.index] == '"') {
+                //     try parser.inc_index(config.mode) orelse continue :outter;
+                // } else {
+                //     std.log.err("Data: {s}\n", .{buffer[parser.index..]});
+                //     std.log.err("Expected \" but got {c}\n", .{buffer[parser.index]});
+                //     return ParserError.InvalidJSON;
+                // }
                 switch (buffer[parser.index]) {
                     ' ', '\n', '\t', '\r' => {
                         // std.debug.print("S: Found padding\n", .{});
@@ -642,29 +654,30 @@ pub fn parse(source_or_file: []const u8, allocator: std.mem.Allocator, expected_
     return json;
 }
 
-test parse {
-    var json = try parse(
-        \\{
-        \\ "test1" 
-        \\      :["t", -1.2],
-        \\   "test2" :
-        \\      [1, "two", true, false ],
-        \\   "test3" :
-        \\      { "nested": [1, "two"] }
-        // \\   "test4\" :
-        // \\      [1, "two", true, false },
-        \\}
-    , std.testing.allocator, 10, .{});
-    std.debug.print("JSON: {s}\n", .{json});
-    json.deinit();
-    // json = try parse("data_10000000_clustered.json", std.testing.allocator, 10, .{ .mode = .file });
-    json = try parse("data_10_clustered.json", std.testing.allocator, 10, .{ .mode = .file });
-    defer json.deinit();
-    std.debug.print("JSON: {s}\n", .{json});
-}
+// test parse {
+//     var json = try parse(
+//         \\{
+//         \\ "test1"
+//         \\      :["t", -1.2],
+//         \\   "test2" :
+//         \\      [1, "two", true, false ],
+//         \\   "test3" :
+//         \\      { "nested": [1, "two"] }
+//         // \\   "test4\" :
+//         // \\      [1, "two", true, false },
+//         \\}
+//     , std.testing.allocator, 10, .{});
+//     std.debug.print("JSON: {s}\n", .{json});
+//     json.deinit();
+//     // json = try parse("data_10000000_clustered.json", std.testing.allocator, 10, .{ .mode = .file });
+//     json = try parse("data_10_clustered.json", std.testing.allocator, 10, .{ .mode = .file });
+//     defer json.deinit();
+//     std.debug.print("JSON: {s}\n", .{json});
+// }
 
 const std = @import("std");
 const JSON = @import("json.zig");
 const Node = JSON.Node;
+const tracer = @import("perf").tracer;
 const comptime_assert = @import("../assert.zig").comptime_assert;
 //

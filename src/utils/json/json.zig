@@ -61,6 +61,16 @@ pub fn parse_new(source: []const u8, allocator: std.mem.Allocator, expected_capa
     return ParserN.parse(source, allocator, expected_capacity, config);
 }
 
+pub fn get_storage_size(self: *JSON) usize {
+    var size: usize = 0; // in bytes
+    size += self.strings.len;
+    size += self.extra_data.len * 4;
+    size += self.nodes.items(.key).len * 8;
+    size += self.nodes.items(.tag).len;
+    size += self.nodes.items(.data).len * 8;
+    return size;
+}
+
 pub fn query(self: *JSON, key: []const u8, object_location: NodeIndex) Error!?NodeIndex {
     const object = self.nodes.get(object_location);
     if (object.tag != .object) {
@@ -289,11 +299,6 @@ pub const Node = struct {
     key: String,
     tag: Tag,
     data: Data,
-
-    pub const Value = struct {
-        tag: Tag,
-        data: Data,
-    };
 
     pub const Data = u64;
 
