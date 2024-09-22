@@ -74,6 +74,12 @@ pub fn build(b: *std.Build) void {
             .path = "src/moving_data/four_level_paging.zig",
             .description = "Four level paging test",
         },
+        .{
+            .step = "asm_loop",
+            .exe_name = "asm_loop",
+            .path = "src/moving_data/asm_loop.zig",
+            .description = "Test comparing writing bytes using different ASM loops to see througput",
+        },
     };
 
     inline for (packages) |p| {
@@ -89,11 +95,16 @@ pub fn build(b: *std.Build) void {
         exe.root_module.addImport("utils", utils);
         exe.root_module.addImport("perf", perf);
 
+        exe.addObjectFile(.{ .path = "src/moving_data/loop_test.lib" });
+        // exe.addLibraryPath(.{ .path = "src/moving_data/" });
+        // exe.linkLibrary();
+
         // Enable asm
         // const waf = b.addWriteFiles();
         // waf.addCopyFileToSource(exe.getEmittedAsm(), p.exe_name ++ ".asm");
         // waf.step.dependOn(&exe.step);
         // b.getInstallStep().dependOn(&waf.step);
+
         b.installArtifact(exe);
         const exe_cmd = b.addRunArtifact(exe);
         exe_cmd.step.dependOn(b.getInstallStep());
