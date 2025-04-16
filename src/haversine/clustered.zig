@@ -27,7 +27,7 @@ const ClusterData = struct {
 };
 
 var clusters: ClusterData = undefined;
-var rng: std.rand.DefaultPrng = undefined;
+var rng: std.Random.DefaultPrng = undefined;
 var current_cluster: usize = 0;
 var max_clusters: usize = 0;
 var initalized: bool = false;
@@ -40,7 +40,7 @@ pub fn init(allocator: std.mem.Allocator, num_clusters: usize, points_per_cluste
     defer local_clusters.deinit();
     std.debug.print("Num clusters: {d}, points_per_cluster:{d}\n", .{ num_clusters, points_per_cluster });
 
-    rng = std.rand.DefaultPrng.init(seed);
+    rng = std.Random.DefaultPrng.init(seed);
     max_clusters = num_clusters;
 
     var cluster: Cluster = undefined;

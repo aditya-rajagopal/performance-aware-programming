@@ -7,17 +7,15 @@ pub fn build(b: *std.Build) void {
     // --------------------------------------------------------------------------------------------------------------
     // -------------------------------------------- Modules ---------------------------------------------------------
     // --------------------------------------------------------------------------------------------------------------
-    const perf = b.addModule("perf", .{ .root_source_file = .{ .path = "src/perf/perf.zig" } });
+    const perf = b.addModule("perf", .{ .root_source_file = b.path("src/perf/perf.zig") });
 
     const utils = b.addModule("utils", .{
-        .root_source_file = .{ .path = "src/utils/utils.zig" },
+        .root_source_file = b.path("src/utils/utils.zig"),
         .imports = &.{.{ .name = "perf", .module = perf }},
     });
 
     const sim8086 = b.addModule("sim8086", .{
-        .root_source_file = .{
-            .path = "src/sim8086/sim8086.zig",
-        },
+        .root_source_file = b.path("src/sim8086/sim8086.zig"),
         .imports = &.{.{ .name = "utils", .module = utils }},
     });
 
@@ -82,6 +80,8 @@ pub fn build(b: *std.Build) void {
         },
     };
 
+    const check_step = b.step("check", "Check if the app compiles");
+
     inline for (packages) |p| {
         const exe = b.addExecutable(.{
             .name = p.exe_name,
@@ -95,7 +95,7 @@ pub fn build(b: *std.Build) void {
         exe.root_module.addImport("utils", utils);
         exe.root_module.addImport("perf", perf);
 
-        exe.addObjectFile(.{ .path = "src/moving_data/loop_test.lib" });
+        exe.addObjectFile(b.path("src/moving_data/loop_test.lib"));
         // exe.addLibraryPath(.{ .path = "src/moving_data/" });
         // exe.linkLibrary();
 
@@ -104,6 +104,19 @@ pub fn build(b: *std.Build) void {
         // waf.addCopyFileToSource(exe.getEmittedAsm(), p.exe_name ++ ".asm");
         // waf.step.dependOn(&exe.step);
         // b.getInstallStep().dependOn(&waf.step);
+
+        const exe_check = b.addExecutable(.{
+            .name = p.exe_name,
+            .root_source_file = b.path(p.path),
+            .target = target,
+            .optimize = optimize,
+        });
+        if (std.mem.eql(u8, "sim8086", p.exe_name)) {
+            exe_check.root_module.addImport("sim8086", sim8086);
+        }
+        exe_check.root_module.addImport("utils", utils);
+        exe_check.root_module.addImport("perf", perf);
+        check_step.dependOn(&exe_check.step);
 
         b.installArtifact(exe);
         const exe_cmd = b.addRunArtifact(exe);

@@ -130,7 +130,7 @@ fn add_extra(self: *Parser, data: anytype) std.mem.Allocator.Error!JSON.NodeInde
     const result = @as(u32, @intCast(self.extra_data.items.len));
 
     switch (typeinfo) {
-        .Int => |i| {
+        .int => |i| {
             comptime comptime_assert(
                 i.bits == 64 and i.signedness == .signed,
                 "Int written to extra data array must be i64 : got {d}bit {s} integer\n",
@@ -140,7 +140,7 @@ fn add_extra(self: *Parser, data: anytype) std.mem.Allocator.Error!JSON.NodeInde
             const ptr = @as([*]u32, @ptrCast(@constCast(&data)));
             data_slice = ptr[0..2];
         },
-        .Float => |f| {
+        .float => |f| {
             comptime comptime_assert(
                 f.bits == 64,
                 "Float written to extra data array must be f64: got f{d}\n",
@@ -151,9 +151,9 @@ fn add_extra(self: *Parser, data: anytype) std.mem.Allocator.Error!JSON.NodeInde
             const ptr = @as([*]u32, @ptrCast(&float_data));
             data_slice = ptr[0..2];
         },
-        .Pointer => |p| {
+        .pointer => |p| {
             comptime comptime_assert(
-                p.size == .Slice and p.child == u32,
+                p.size == .slice and p.child == u32,
                 "Pointers of type []u32 are allowed: got {s} of type {any}\n",
                 .{ @tagName(p.size), p.child },
             );
@@ -161,7 +161,7 @@ fn add_extra(self: *Parser, data: anytype) std.mem.Allocator.Error!JSON.NodeInde
             self.extra_data.appendAssumeCapacity(@as(u32, @intCast(data.len)));
             data_slice = data;
         },
-        .Array => |a| {
+        .array => |a| {
             comptime comptime_assert(
                 a.len == 2 and a.child == u32,
                 "Only accpeting [2]u32: got {d}[{any}]",

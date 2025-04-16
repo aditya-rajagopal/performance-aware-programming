@@ -30,8 +30,7 @@ pub const Token = struct {
     }
 };
 
-const Keywords = std.ComptimeStringMap(
-    Token.Tag,
+const Keywords = std.StaticStringMap(Token.Tag).initComptime(
     .{
         .{ "null", .NULL },
         .{ "true", .TRUE },
@@ -96,8 +95,7 @@ pub inline fn next_token(self: *JsonLexer) Token {
 
 // TODO(aditya): Possible performance bottleneck
 fn eat_number(self: *JsonLexer) ?bool {
-    @setCold(false);
-
+    @branchHint(.likely);
     var pos = self.increment_pos() orelse return null;
     var is_float = false;
     while (((self.source[pos] >= '0' and self.source[pos] <= '9') or self.source[pos] == '.')) {
@@ -121,7 +119,7 @@ fn eat_number(self: *JsonLexer) ?bool {
 }
 
 fn eat_till_delimiter(self: *JsonLexer) ?usize {
-    @setCold(false);
+    @branchHint(.likely);
     var pos = self.increment_pos() orelse return null;
     while ((self.source[pos] != ',' and self.source[pos] != ':' and self.source[pos] != '}' and self.source[pos] != ']' and self.source[pos] != ' ')) {
         pos = self.increment_pos() orelse return null;
@@ -139,7 +137,7 @@ fn eat_till_scalar(self: *JsonLexer, char: u8) ?usize {
 }
 
 fn increment_pos(self: *JsonLexer) ?usize {
-    @setCold(false);
+    @branchHint(.likely);
     const value = self.current_pos;
     self.current_pos += 1;
     if (self.current_pos > self.source.len) {
@@ -153,7 +151,7 @@ fn decrement_pos(self: *JsonLexer) void {
 }
 
 fn eat_till_valid(self: *JsonLexer) ?usize {
-    @setCold(false);
+    @branchHint(.likely);
     var pos = self.increment_pos() orelse return null;
     while (self.source[pos] == ' ' or self.source[pos] == '\n' or self.source[pos] == '\t' or self.source[pos] == '\r') {
         pos = self.increment_pos() orelse return null;

@@ -323,35 +323,35 @@ pub const FlagCheck = struct {
     }
 };
 
-const C_RESULT = .{ .flag = .C, .tag = .result };
-const P_RESULT = .{ .flag = .P, .tag = .result };
-const A_RESULT = .{ .flag = .A, .tag = .result };
-const Z_RESULT = .{ .flag = .Z, .tag = .result };
-const S_RESULT = .{ .flag = .S, .tag = .result };
-const T_RESULT = .{ .flag = .T, .tag = .result };
-const I_RESULT = .{ .flag = .I, .tag = .result };
-const D_RESULT = .{ .flag = .D, .tag = .result };
-const O_RESULT = .{ .flag = .O, .tag = .result };
+const C_RESULT: FlagCheck = .{ .flag = .C, .tag = .result };
+const P_RESULT: FlagCheck = .{ .flag = .P, .tag = .result };
+const A_RESULT: FlagCheck = .{ .flag = .A, .tag = .result };
+const Z_RESULT: FlagCheck = .{ .flag = .Z, .tag = .result };
+const S_RESULT: FlagCheck = .{ .flag = .S, .tag = .result };
+const T_RESULT: FlagCheck = .{ .flag = .T, .tag = .result };
+const I_RESULT: FlagCheck = .{ .flag = .I, .tag = .result };
+const D_RESULT: FlagCheck = .{ .flag = .D, .tag = .result };
+const O_RESULT: FlagCheck = .{ .flag = .O, .tag = .result };
 
-const C_SET = .{ .flag = .C, .tag = .set, .set = true };
-const P_SET = .{ .flag = .P, .tag = .set, .set = true };
-const A_SET = .{ .flag = .A, .tag = .set, .set = true };
-const Z_SET = .{ .flag = .Z, .tag = .set, .set = true };
-const S_SET = .{ .flag = .S, .tag = .set, .set = true };
-const T_SET = .{ .flag = .T, .tag = .set, .set = true };
-const I_SET = .{ .flag = .I, .tag = .set, .set = true };
-const D_SET = .{ .flag = .D, .tag = .set, .set = true };
-const O_SET = .{ .flag = .O, .tag = .set, .set = true };
+const C_SET: FlagCheck = .{ .flag = .C, .tag = .set, .set = true };
+const P_SET: FlagCheck = .{ .flag = .P, .tag = .set, .set = true };
+const A_SET: FlagCheck = .{ .flag = .A, .tag = .set, .set = true };
+const Z_SET: FlagCheck = .{ .flag = .Z, .tag = .set, .set = true };
+const S_SET: FlagCheck = .{ .flag = .S, .tag = .set, .set = true };
+const T_SET: FlagCheck = .{ .flag = .T, .tag = .set, .set = true };
+const I_SET: FlagCheck = .{ .flag = .I, .tag = .set, .set = true };
+const D_SET: FlagCheck = .{ .flag = .D, .tag = .set, .set = true };
+const O_SET: FlagCheck = .{ .flag = .O, .tag = .set, .set = true };
 
-const C_UNSET = .{ .flag = .C, .tag = .unset };
-const P_UNSET = .{ .flag = .P, .tag = .unset };
-const A_UNSET = .{ .flag = .A, .tag = .unset };
-const Z_UNSET = .{ .flag = .Z, .tag = .unset };
-const S_UNSET = .{ .flag = .S, .tag = .unset };
-const T_UNSET = .{ .flag = .T, .tag = .unset };
-const I_UNSET = .{ .flag = .I, .tag = .unset };
-const D_UNSET = .{ .flag = .D, .tag = .unset };
-const O_UNSET = .{ .flag = .O, .tag = .unset };
+const C_UNSET: FlagCheck = .{ .flag = .C, .tag = .unset };
+const P_UNSET: FlagCheck = .{ .flag = .P, .tag = .unset };
+const A_UNSET: FlagCheck = .{ .flag = .A, .tag = .unset };
+const Z_UNSET: FlagCheck = .{ .flag = .Z, .tag = .unset };
+const S_UNSET: FlagCheck = .{ .flag = .S, .tag = .unset };
+const T_UNSET: FlagCheck = .{ .flag = .T, .tag = .unset };
+const I_UNSET: FlagCheck = .{ .flag = .I, .tag = .unset };
+const D_UNSET: FlagCheck = .{ .flag = .D, .tag = .unset };
+const O_UNSET: FlagCheck = .{ .flag = .O, .tag = .unset };
 
 const ignore_all_flags: []const FlagCheck = &[_]FlagCheck{};
 

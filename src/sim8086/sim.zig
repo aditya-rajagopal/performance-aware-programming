@@ -30,7 +30,6 @@ pub fn main() !void {
     }
 
     var output: []const u8 = undefined;
-    defer allocator.free(output);
 
     // std.debug.print("config: {any}\n", .{config});
 
@@ -68,6 +67,7 @@ pub fn main() !void {
     } else {
         std.log.err("{s}", .{usage_str});
         std.log.err("Invalid usage: -d, --disassembly [path] must be provided", .{});
+        return;
     }
 
     if (config.enable_output) {
@@ -94,4 +94,6 @@ pub fn main() !void {
         try file.writer().writeAll(output);
         try outw.print("Output written to: {s}", .{out_file});
     }
+
+    allocator.free(output);
 }

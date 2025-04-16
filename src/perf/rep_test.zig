@@ -115,13 +115,13 @@ pub const Ctx = struct {
 
     pub fn begin(self: *Ctx) void {
         self.num_blk_started += 1;
-        self.current_test_result.Val[@intFromEnum(ResTypes.page_fault)] -%= tsc.ReadOSPageFaultCount(Process.handle);
+        self.current_test_result.Val[@intFromEnum(ResTypes.page_fault)] -%= tsc.ReadOSPageFaultCount(Process.handle) catch 0;
         self.current_test_result.Val[@intFromEnum(ResTypes.cpu_time)] -%= options.time_fn();
     }
 
     pub fn end(self: *Ctx) void {
         self.current_test_result.Val[@intFromEnum(ResTypes.cpu_time)] +%= options.time_fn();
-        self.current_test_result.Val[@intFromEnum(ResTypes.page_fault)] +%= tsc.ReadOSPageFaultCount(Process.handle);
+        self.current_test_result.Val[@intFromEnum(ResTypes.page_fault)] +%= tsc.ReadOSPageFaultCount(Process.handle) catch 0;
         self.num_blk_ended += 1;
     }
 
@@ -161,7 +161,7 @@ pub const Ctx = struct {
 
             const total_time = self.current_test_result.Val[@intFromEnum(ResTypes.cpu_time)];
 
-            inline for (@typeInfo(ResTypes).Enum.fields) |field| {
+            inline for (@typeInfo(ResTypes).@"enum".fields) |field| {
                 self.result.total.Val[field.value] +%= self.current_test_result.Val[field.value];
             }
 

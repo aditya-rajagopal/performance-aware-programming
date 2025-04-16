@@ -2,10 +2,10 @@ const std = @import("std");
 const utils = @import("utils");
 const haversine = @import("haversine");
 
-var rng: std.rand.Pcg = undefined;
+var rng: std.Random.Pcg = undefined;
 
 pub fn init(seed: u64) void {
-    rng = std.rand.Pcg.init(seed);
+    rng = std.Random.Pcg.init(seed);
 }
 
 pub fn get_point() struct { f64, f64, f64, f64 } {

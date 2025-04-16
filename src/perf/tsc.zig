@@ -28,14 +28,14 @@ pub fn InitializeOSMetrics() windows.HANDLE {
     @compileError("Platform not supported");
 }
 
-pub fn ReadOSPageFaultCount(handle: windows.HANDLE) u64 {
+pub fn ReadOSPageFaultCount(handle: windows.HANDLE) windows.GetProcessMemoryInfoError!u64 {
     if (builtin.os.tag == .windows) {
         var memory_counters: windows.PROCESS_MEMORY_COUNTERS_EX = std.mem.zeroInit(windows.PROCESS_MEMORY_COUNTERS_EX, .{});
         memory_counters.cb = @sizeOf(windows.PROCESS_MEMORY_COUNTERS_EX);
 
-        _ = windows.kernel32.K32GetProcessMemoryInfo(handle, @ptrCast(&memory_counters), @sizeOf(windows.PROCESS_MEMORY_COUNTERS_EX));
+        const counters = try windows.GetProcessMemoryInfo(handle);
 
-        const result: u64 = @intCast(memory_counters.PageFaultCount);
+        const result: u64 = @intCast(counters.PageFaultCount);
         return result;
     }
 

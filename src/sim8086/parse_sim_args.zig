@@ -59,7 +59,6 @@ pub fn parseArgs(allocator: std.mem.Allocator) !Config {
     defer args.deinit();
 
     _ = args.next().?;
-    // std.debug.print("zig: {s}\n", .{zig});
 
     var config: Config = .{};
     config.disassemble = null;
@@ -73,7 +72,6 @@ pub fn parseArgs(allocator: std.mem.Allocator) !Config {
         arg = a;
     } else {
         std.log.err("{s}", .{usage});
-        std.log.err("Invalid argument: {s}", .{arg});
         config.is_error = true;
         return config;
     }

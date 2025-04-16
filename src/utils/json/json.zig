@@ -118,7 +118,7 @@ pub fn query_expect(self: *JSON, T: type, key: []const u8, object_location: Node
     comptime var type_info = @typeInfo(T);
     inline while (true) {
         switch (type_info) {
-            .Optional => |o| {
+            .optional => |o| {
                 const child_type = o.child;
                 if (value_tag == .null) {
                     return null;
@@ -126,7 +126,7 @@ pub fn query_expect(self: *JSON, T: type, key: []const u8, object_location: Node
                 type_info = @typeInfo(child_type);
                 continue;
             },
-            .Int => |i| {
+            .int => |i| {
                 comptime comptime_assert(
                     i.bits == 64 and i.signedness == .signed,
                     "Can only read 64bit signed integer from JSON: got {d}bit {s} integer\n",
@@ -141,7 +141,7 @@ pub fn query_expect(self: *JSON, T: type, key: []const u8, object_location: Node
                 }
                 return @bitCast(value);
             },
-            .Float => |f| {
+            .float => |f| {
                 comptime comptime_assert(
                     f.bits == 64,
                     "Can only read f64 as array values: got f{d}\n",
@@ -156,9 +156,9 @@ pub fn query_expect(self: *JSON, T: type, key: []const u8, object_location: Node
                 }
                 return @bitCast(value);
             },
-            .Pointer => |p| {
+            .pointer => |p| {
                 comptime comptime_assert(
-                    p.size == .Slice and p.child == u32,
+                    p.size == .slice and p.child == u32,
                     "Pointers of type []u32 are allowed: got {s} of type {any}\n",
                     .{ @tagName(p.size), p.child },
                 );
@@ -173,7 +173,7 @@ pub fn query_expect(self: *JSON, T: type, key: []const u8, object_location: Node
                 const len = data_ptr[0];
                 return data_ptr[1 .. len + 1];
             },
-            .Bool => {
+            .bool => {
                 if (value_tag != .boolean_true or value_tag != .boolean_false) {
                     std.log.err(
                         "JSON entry with key: {s} has value of type: JSON.{s} but requested {any}\n",
@@ -203,12 +203,12 @@ pub fn query_struct(self: *JSON, T: type, object_location: NodeIndex) !T {
 
     const type_info = @typeInfo(T);
     switch (type_info) {
-        .Struct => |s| {
+        .@"struct" => |s| {
             var output: T = undefined;
             inline for (s.fields) |field| {
                 const value = self.query_expect(field.type, field.name, object_location) catch |err| switch (err) {
                     Error.KeyNotFound => escape: {
-                        if (field.default_value) |default| {
+                        if (field.default_value_ptr) |default| {
                             const temp_value: *const field.type = @alignCast(@ptrCast(default));
                             break :escape temp_value.*;
                         }
@@ -254,9 +254,9 @@ pub fn read_extra(self: *JSON, T: type, loc: usize) T {
         //     const value: f64 = @bitCast(data_ptr[0..2].*);
         //     return value;
         // },
-        .Pointer => |p| {
+        .pointer => |p| {
             comptime comptime_assert(
-                p.size == .Slice and p.child == u32,
+                p.size == .slice and p.child == u32,
                 "Pointers of type []u32 are allowed: got {s} of type {any}\n",
                 .{ @tagName(p.size), p.child },
             );

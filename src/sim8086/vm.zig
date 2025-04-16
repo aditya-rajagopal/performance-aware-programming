@@ -7,12 +7,12 @@ flags: u16 = 0,
 /// Return pointer to this when you have a null operand
 null_memory: u8 = 0,
 
-registers: [24]u8 align(2) = .{0} ** 24,
-ip_register: u16 = 0,
-immediate_store: [2]u8 align(2) = .{0} ** 2,
+registers: [24]u8 align(1) = .{0} ** 24,
+ip_register: u16 align(1) = 0,
+immediate_store: [2]u8 align(1) = .{0} ** 2,
 
-memory: [1024 * 1024]u8 align(2) = .{0} ** (1024 * 1024),
-max_memory_accessed: usize = 0,
+memory: [1024 * 1024]u8 align(1) = .{0} ** (1024 * 1024),
+max_memory_accessed: usize align(1) = 0,
 
 const ResolvedOp = struct {
     ptr: *u8,
@@ -81,7 +81,7 @@ fn execute(self: *VM, instruction: Instruction, vm_out: *std.ArrayList(u8), verb
     var buffer: [1024]u8 = undefined;
 
     var initial_value: u16 = 0;
-    var dest: *u16 = undefined;
+    var dest: *align(1) u16 = undefined;
 
     if (destination.reg_name) |_| {
         dest = @ptrFromInt(@intFromPtr(destination.ptr) - destination.offset);
@@ -117,20 +117,20 @@ fn resolve_code(self: *VM, comptime T: type, op_code: Code, dest: ResolvedOp, sr
     const type_info = @typeInfo(T);
     var sign_check_mask: T = 0;
     switch (type_info) {
-        .Int => |i| {
+        .int => |i| {
             sign_check_mask |= 1 << @truncate(i.bits - 1);
         },
         else => @compileError("Cant use this code with non-int type"),
     }
 
-    const dest_ptr: *T = @alignCast(@ptrCast(dest.ptr));
+    const dest_ptr: *align(1) T = @alignCast(@ptrCast(dest.ptr));
     var out_value: T = undefined;
     var overflow: bool = false;
     var is_carry: bool = false;
 
     switch (op_code) {
         .mov => {
-            const src_ptr: *T = @alignCast(@ptrCast(src.ptr));
+            const src_ptr: *align(1) T = @alignCast(@ptrCast(src.ptr));
             dest_ptr.* = src_ptr.*;
             return;
         },
@@ -313,7 +313,7 @@ fn resolve_code(self: *VM, comptime T: type, op_code: Code, dest: ResolvedOp, sr
         .loop => {
             if (T == u8) {
                 const displacement: i8 = @bitCast(dest_ptr.*);
-                const CX: *u16 = @alignCast(@ptrCast(&self.registers[(@intFromEnum(Registers.cx) - 8) * 2]));
+                const CX: *align(1) u16 = @alignCast(@ptrCast(&self.registers[(@intFromEnum(Registers.cx) - 8) * 2]));
                 CX.* -= 1;
                 if (CX.* != 0) {
                     self.ip_register = @intCast(@as(i32, @intCast(self.ip_register)) + displacement);
@@ -324,7 +324,7 @@ fn resolve_code(self: *VM, comptime T: type, op_code: Code, dest: ResolvedOp, sr
         .loopz => {
             if (T == u8) {
                 const displacement: i8 = @bitCast(dest_ptr.*);
-                const CX: *u16 = @alignCast(@ptrCast(&self.registers[(@intFromEnum(Registers.cx) - 8) * 2]));
+                const CX: *align(1) u16 = @alignCast(@ptrCast(&self.registers[(@intFromEnum(Registers.cx) - 8) * 2]));
                 const ZF = self.flags & @intFromEnum(Flags.Z);
                 CX.* -= 1;
                 if (CX.* != 0 and ZF != 0) {
@@ -336,7 +336,7 @@ fn resolve_code(self: *VM, comptime T: type, op_code: Code, dest: ResolvedOp, sr
         .loopnz => {
             if (T == u8) {
                 const displacement: i8 = @bitCast(dest_ptr.*);
-                const CX: *u16 = @alignCast(@ptrCast(&self.registers[(@intFromEnum(Registers.cx) - 8) * 2]));
+                const CX: *align(1) u16 = @alignCast(@ptrCast(&self.registers[(@intFromEnum(Registers.cx) - 8) * 2]));
                 const ZF = self.flags & @intFromEnum(Flags.Z);
                 CX.* -= 1;
                 if (CX.* != 0 and ZF == 0) {
@@ -346,7 +346,7 @@ fn resolve_code(self: *VM, comptime T: type, op_code: Code, dest: ResolvedOp, sr
             return;
         },
         .add => {
-            const src_ptr: *T = @alignCast(@ptrCast(src.ptr));
+            const src_ptr: *align(1) T = @alignCast(@ptrCast(src.ptr));
             const output = @addWithOverflow(dest_ptr.*, src_ptr.*);
             const check = (output[0] ^ dest_ptr.*) & (output[0] ^ src_ptr.*) & sign_check_mask;
             overflow = check != 0;
@@ -355,7 +355,7 @@ fn resolve_code(self: *VM, comptime T: type, op_code: Code, dest: ResolvedOp, sr
             dest_ptr.* = output[0];
         },
         .adc => {
-            const src_ptr: *T = @alignCast(@ptrCast(src.ptr));
+            const src_ptr: *align(1) T = @alignCast(@ptrCast(src.ptr));
             const carry = @intFromBool(self.flags & @intFromEnum(Flags.C) != 0);
             const output_pre = @addWithOverflow(dest_ptr.*, src_ptr.*);
             const check1 = (output_pre[0] ^ dest_ptr.*) & (output_pre[0] ^ src_ptr.*) & sign_check_mask;
@@ -376,7 +376,7 @@ fn resolve_code(self: *VM, comptime T: type, op_code: Code, dest: ResolvedOp, sr
             dest_ptr.* = output[0];
         },
         .sub, .cmp => |code| {
-            const src_ptr: *T = @alignCast(@ptrCast(src.ptr));
+            const src_ptr: *align(1) T = @alignCast(@ptrCast(src.ptr));
             const output = @subWithOverflow(dest_ptr.*, src_ptr.*);
             const check = (output[0] ^ dest_ptr.*) & (~(output[0] ^ src_ptr.*)) & sign_check_mask;
             overflow = check != 0;
@@ -388,7 +388,7 @@ fn resolve_code(self: *VM, comptime T: type, op_code: Code, dest: ResolvedOp, sr
             }
         },
         .sbb => {
-            const src_ptr: *T = @alignCast(@ptrCast(src.ptr));
+            const src_ptr: *align(1) T = @alignCast(@ptrCast(src.ptr));
             const carry: T = @intFromBool(self.flags & @intFromEnum(Flags.C) != 0);
 
             const output_pre = @subWithOverflow(dest_ptr.*, src_ptr.*);
@@ -473,11 +473,11 @@ fn resolve_operand(self: *VM, index: usize, instruction: Instruction) ResolvedOp
         },
         .immediate => |i| {
             if (instruction.flags & REL_JUMP_FLAG != 0) {
-                const imm_ptr: *i16 = @alignCast(@ptrCast(&self.immediate_store));
+                const imm_ptr: *align(1) i16 = @alignCast(@ptrCast(&self.immediate_store));
                 imm_ptr.* = @bitCast(i);
                 return .{ .ptr = &self.immediate_store[0] };
             } else {
-                const imm_ptr: *u16 = @alignCast(@ptrCast(&self.immediate_store));
+                const imm_ptr: *align(1) u16 = @alignCast(@ptrCast(&self.immediate_store));
                 imm_ptr.* = i;
                 return .{ .ptr = &self.immediate_store[0] };
             }
@@ -489,7 +489,7 @@ fn resolve_operand(self: *VM, index: usize, instruction: Instruction) ResolvedOp
                 sr = @enumFromInt(instruction.segment_override);
             }
             const sr_pos: usize = @intFromEnum(sr) - 8;
-            const sr_value: *u16 = @alignCast(@ptrCast(&self.registers[sr_pos * 2]));
+            const sr_value: *align(1) u16 = @alignCast(@ptrCast(&self.registers[sr_pos * 2]));
             var memory: u16 = 0;
 
             if (m.is_direct) {
@@ -497,11 +497,11 @@ fn resolve_operand(self: *VM, index: usize, instruction: Instruction) ResolvedOp
                 memory = @bitCast(displacement);
             } else {
                 const effective_address = effective_address_map[m.ptr];
-                memory = @as(*u16, @alignCast(@ptrCast(&self.registers[(@intFromEnum(effective_address[0]) - 8) * 2]))).*;
+                memory = @as(*align(1) u16, @alignCast(@ptrCast(&self.registers[(@intFromEnum(effective_address[0]) - 8) * 2]))).*;
                 if (effective_address.len > 1) {
-                    memory += @as(*u16, @alignCast(@ptrCast(&self.registers[(@intFromEnum(effective_address[1]) - 8) * 2]))).*;
+                    memory += @as(*align(1) u16, @alignCast(@ptrCast(&self.registers[(@intFromEnum(effective_address[1]) - 8) * 2]))).*;
                 }
-                memory = @intCast(@as(i32, @intCast(memory)) + displacement);
+                memory = @bitCast(@as(i16, @truncate(@as(i32, @intCast(memory)) + displacement)));
             }
 
             var ptr: usize = sr_value.* << 4;
@@ -539,7 +539,7 @@ fn add_vm_state(self: *VM, vm_out: *std.ArrayList(u8)) !void {
     var i: usize = 0;
     while (i < self.registers.len) : (i += 2) {
         const reg_type: Registers = @enumFromInt(i / 2 + 8);
-        const reg: u16 = @as(*u16, @alignCast(@ptrCast(&self.registers[i]))).*;
+        const reg: u16 = @as(*align(1) u16, @alignCast(@ptrCast(&self.registers[i]))).*;
         if (reg != 0) {
             try vm_out.appendSlice(try std.fmt.bufPrint(&buffer, "\t{s}: 0x{x:0>4} ({d})\n", .{ @tagName(reg_type), reg, reg }));
         }

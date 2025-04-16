@@ -49,14 +49,14 @@ pub fn main() !void {
         );
         if (data) |d| {
             const array: []u8 = @as([*]u8, @alignCast(@ptrCast(d)))[0..total_size];
-            const start_fault_count = tsc.ReadOSPageFaultCount(handle);
+            const start_fault_count = tsc.ReadOSPageFaultCount(handle) catch 0;
             for (0..touch_size) |i| {
                 switch (dir) {
                     .forward => array[i] = @truncate(i),
                     .backwards => array[touch_size - i - 1] = @truncate(i),
                 }
             }
-            const end_fault_count = tsc.ReadOSPageFaultCount(handle);
+            const end_fault_count = tsc.ReadOSPageFaultCount(handle) catch 0;
             const num_faults = end_fault_count - start_fault_count;
             try stdout.print("{d},{d},{d},{d}\n", .{ page_count, num_touches, num_faults, num_faults - num_touches });
             _ = windows.kernel32.VirtualFree(data, 0, windows.MEM_RELEASE);

@@ -45,7 +45,7 @@ pub fn directEnumArrayDefault(
     @setEvalBranchQuota(200000);
     const len = comptime std.enums.directEnumArrayLen(E, max_unused_slots) + 1;
     var result: [len]Data = if (default) |d| [_]Data{d} ** len else undefined;
-    inline for (@typeInfo(@TypeOf(init_values)).Struct.fields) |f| {
+    inline for (@typeInfo(@TypeOf(init_values)).@"struct".fields) |f| {
         const enum_value = @field(E, f.name);
         const index = @as(usize, @intCast(@intFromEnum(enum_value)));
         result[index] = @field(init_values, f.name);
@@ -57,7 +57,7 @@ var tracer_anchors = directEnumArrayDefault(
     TracerAnchors,
     TracerInfo,
     TracerInfo{},
-    @typeInfo(TracerAnchors).Enum.fields.len,
+    @typeInfo(TracerAnchors).@"enum".fields.len,
     .{},
 );
 
@@ -164,7 +164,7 @@ pub fn tracer_print_stderr() void {
     }
     const full_time = duration_ms(TracerEnd, TracerStart);
     std.debug.print("Total time: {d:.6} (CPU freq {d})\n", .{ full_time, cpu_frequency });
-    inline for (@typeInfo(TracerAnchors).Enum.fields) |field| {
+    inline for (@typeInfo(TracerAnchors).@"enum".fields) |field| {
         const info = tracer_anchors[field.value + 1];
         const mark_time = to_ms(info.scope_time_exclusive);
         if (mark_time != 0) {

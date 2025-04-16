@@ -10,23 +10,23 @@ pub inline fn isComptime(val: anytype) bool {
 fn createEnumsFromStructs(structs: anytype) type {
     const structs_type = @TypeOf(structs);
     const structs_type_info = @typeInfo(structs_type);
-    if (structs_type_info != .Struct) {
+    if (structs_type_info != .@"struct") {
         @compileError("expected tuple or struct argument, found " ++ @typeName(structs_type));
     }
-    const fields = structs_type_info.Struct.fields;
+    const fields = structs_type_info.@"struct".fields;
 
     comptime var index: usize = 0;
     comptime var pos = 0;
     inline for (fields) |field| {
         const field_type_info = @typeInfo(field.type);
         switch (field_type_info) {
-            .Type => {
+            .type => {
                 const T: type = @field(structs, field.name);
                 const struct_info = @typeInfo(T);
                 switch (struct_info) {
-                    .Struct => |s| {
+                    .@"struct" => |s| {
                         inline for (s.decls) |decl| {
-                            if (@typeInfo(@TypeOf(@field(T, decl.name))) == .Fn) {
+                            if (@typeInfo(@TypeOf(@field(T, decl.name))) == .@"fn") {
                                 index += 1;
                             }
                         }
@@ -36,8 +36,8 @@ fn createEnumsFromStructs(structs: anytype) type {
                     },
                 }
             },
-            .Pointer => |p| {
-                if (p.size != .One) {
+            .pointer => |p| {
+                if (p.size != .one) {
                     @compileError("expected comptime string. " ++ @typeName(field.type));
                 }
                 index += 1;
@@ -55,13 +55,13 @@ fn createEnumsFromStructs(structs: anytype) type {
     inline for (fields) |field| {
         const field_type_info = @typeInfo(field.type);
         switch (field_type_info) {
-            .Type => {
+            .type => {
                 const T: type = @field(structs, field.name);
                 const struct_info = @typeInfo(T);
                 switch (struct_info) {
-                    .Struct => |s| {
+                    .@"struct" => |s| {
                         inline for (s.decls) |decl| {
-                            if (@typeInfo(@TypeOf(@field(T, decl.name))) == .Fn) {
+                            if (@typeInfo(@TypeOf(@field(T, decl.name))) == .@"fn") {
                                 enum_fields[index].name = decl.name; // @typeName(T) ++ "__" ++ decl.name;
                                 enum_fields[index].value = index;
                                 index += 1;
@@ -73,8 +73,8 @@ fn createEnumsFromStructs(structs: anytype) type {
                     },
                 }
             },
-            .Pointer => |p| {
-                if (p.size != .One) {
+            .pointer => |p| {
+                if (p.size != .one) {
                     @compileError("expected Slice pointer. " ++ @typeName(structs_type));
                 }
                 enum_fields[index].name = @field(structs, field.name);
@@ -90,11 +90,11 @@ fn createEnumsFromStructs(structs: anytype) type {
     var enum_type: std.builtin.Type.Enum = undefined;
 
     enum_type.fields = &enum_fields;
-    enum_type.tag_type = @Type(std.builtin.Type{ .Int = .{ .bits = 16, .signedness = .unsigned } });
+    enum_type.tag_type = @Type(std.builtin.Type{ .int = .{ .bits = 16, .signedness = .unsigned } });
     enum_type.decls = &[0]std.builtin.Type.Declaration{};
     enum_type.is_exhaustive = true;
 
-    return @Type(std.builtin.Type{ .Enum = enum_type });
+    return @Type(std.builtin.Type{ .@"enum" = enum_type });
 }
 
 test createEnumsFromStructs {
